@@ -3,6 +3,7 @@ package sql
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 type Parser struct {
@@ -26,6 +27,10 @@ func (p *Parser) Parse() (Statement, error) {
 		return p.parseCreate()
 	case TOKEN_UPDATE:
 		return p.parseUpdate()
+	case TOKEN_USE:
+		return p.parseUse()
+	case TOKEN_SHOW:
+		return p.parseShow()
 	default:
 		return nil, fmt.Errorf("unknown statement: '%s'", p.peek().Literal)
 	}
@@ -34,20 +39,54 @@ func (p *Parser) Parse() (Statement, error) {
 // ── SELECT ────────────────────────────────────────────────────
 
 func (p *Parser) parseSelect() (*SelectStatement, error) {
-	p.consume() // eat SELECT
-	cols, err := p.parseColumns()
+	p.consume()
+
+	exprs, err := p.parseSelectExprs()
 	if err != nil {
 		return nil, err
 	}
+
 	if err := p.expect(TOKEN_FROM); err != nil {
 		return nil, err
 	}
+
 	tableTok, err := p.expectIdent()
 	if err != nil {
 		return nil, err
 	}
 
-	stmt := &SelectStatement{Columns: cols, TableName: tableTok.Literal, Limit: 0}
+	stmt := &SelectStatement{Exprs: exprs, TableName: tableTok.Literal}
+
+	// optional JOIN
+	if p.peek().Type == TOKEN_JOIN {
+		p.consume()
+		joinTable, err := p.expectIdent()
+		if err != nil {
+			return nil, err
+		}
+		if err := p.expect(TOKEN_ON); err != nil {
+			return nil, err
+		}
+		// parse: leftTable.leftCol = rightTable.rightCol
+		leftTable, leftCol, err := p.parseQualifiedCol()
+		if err != nil {
+			return nil, err
+		}
+		if err := p.expect(TOKEN_EQUALS); err != nil {
+			return nil, err
+		}
+		rightTable, rightCol, err := p.parseQualifiedCol()
+		if err != nil {
+			return nil, err
+		}
+		stmt.Join = &JoinClause{
+			TableName:  joinTable.Literal,
+			LeftTable:  leftTable,
+			LeftCol:    leftCol,
+			RightTable: rightTable,
+			RightCol:   rightCol,
+		}
+	}
 
 	// optional WHERE
 	if p.peek().Type == TOKEN_WHERE {
@@ -71,8 +110,7 @@ func (p *Parser) parseSelect() (*SelectStatement, error) {
 		}
 		desc := false
 		if p.peek().Type == TOKEN_DESC {
-			p.consume()
-			desc = true
+			p.consume(); desc = true
 		} else if p.peek().Type == TOKEN_ASC {
 			p.consume()
 		}
@@ -91,6 +129,87 @@ func (p *Parser) parseSelect() (*SelectStatement, error) {
 	}
 
 	return stmt, nil
+}
+
+// parseSelectExprs parses: *, col, table.col, COUNT(*), SUM(col), ...
+func (p *Parser) parseSelectExprs() ([]SelectExpr, error) {
+	if p.peek().Type == TOKEN_STAR {
+		p.consume()
+		return []SelectExpr{{Star: true}}, nil
+	}
+
+	var exprs []SelectExpr
+	for {
+		expr, err := p.parseOneExpr()
+		if err != nil {
+			return nil, err
+		}
+		exprs = append(exprs, expr)
+		if p.peek().Type != TOKEN_COMMA {
+			break
+		}
+		p.consume()
+	}
+	return exprs, nil
+}
+
+func (p *Parser) parseOneExpr() (SelectExpr, error) {
+	tok := p.consume()
+
+	// check for aggregate functions: COUNT, SUM, AVG, MAX, MIN
+	upper := strings.ToUpper(tok.Literal)
+	if isAggFunc(upper) && p.peek().Type == TOKEN_LPAREN {
+		p.consume() // eat (
+		expr := SelectExpr{AggFunc: upper}
+		if p.peek().Type == TOKEN_STAR {
+			p.consume()
+			expr.AggStar = true
+		} else {
+			argTok := p.consume()
+			expr.AggArg = argTok.Literal
+		}
+		if err := p.expect(TOKEN_RPAREN); err != nil {
+			return SelectExpr{}, err
+		}
+		return expr, nil
+	}
+
+	// check for table.col
+	if p.peek().Type == TOKEN_DOT {
+		p.consume() // eat .
+		colTok, err := p.expectIdent()
+		if err != nil {
+			return SelectExpr{}, err
+		}
+		return SelectExpr{Table: tok.Literal, Column: colTok.Literal}, nil
+	}
+
+	// plain column
+	return SelectExpr{Column: tok.Literal}, nil
+}
+
+func isAggFunc(s string) bool {
+	switch s {
+	case "COUNT", "SUM", "AVG", "MAX", "MIN":
+		return true
+	}
+	return false
+}
+
+// parseQualifiedCol parses table.col
+func (p *Parser) parseQualifiedCol() (table, col string, err error) {
+	tableTok, err := p.expectIdent()
+	if err != nil {
+		return "", "", err
+	}
+	if err := p.expect(TOKEN_DOT); err != nil {
+		return "", "", err
+	}
+	colTok, err := p.expectIdent()
+	if err != nil {
+		return "", "", err
+	}
+	return tableTok.Literal, colTok.Literal, nil
 }
 
 // ── INSERT ────────────────────────────────────────────────────
@@ -127,7 +246,7 @@ func (p *Parser) parseInsert() (*InsertStatement, error) {
 // ── UPDATE ────────────────────────────────────────────────────
 
 func (p *Parser) parseUpdate() (*UpdateStatement, error) {
-	p.consume() // eat UPDATE
+	p.consume()
 	tableTok, err := p.expectIdent()
 	if err != nil {
 		return nil, err
@@ -135,8 +254,6 @@ func (p *Parser) parseUpdate() (*UpdateStatement, error) {
 	if err := p.expect(TOKEN_SET); err != nil {
 		return nil, err
 	}
-
-	// parse SET col = val, col = val ...
 	var sets []SetClause
 	for {
 		colTok, err := p.expectIdent()
@@ -153,10 +270,7 @@ func (p *Parser) parseUpdate() (*UpdateStatement, error) {
 		}
 		p.consume()
 	}
-
 	stmt := &UpdateStatement{TableName: tableTok.Literal, Sets: sets}
-
-	// optional WHERE
 	if p.peek().Type == TOKEN_WHERE {
 		p.consume()
 		where, err := p.parseWhere()
@@ -165,7 +279,6 @@ func (p *Parser) parseUpdate() (*UpdateStatement, error) {
 		}
 		stmt.Where = where
 	}
-
 	return stmt, nil
 }
 
@@ -192,10 +305,20 @@ func (p *Parser) parseDelete() (*DeleteStatement, error) {
 	return stmt, nil
 }
 
-// ── CREATE ────────────────────────────────────────────────────
+// ── CREATE TABLE / DATABASE ───────────────────────────────────
 
-func (p *Parser) parseCreate() (*CreateStatement, error) {
-	p.consume()
+func (p *Parser) parseCreate() (Statement, error) {
+	p.consume() // eat CREATE
+
+	if p.peek().Type == TOKEN_DATABASE {
+		p.consume()
+		nameTok, err := p.expectIdent()
+		if err != nil {
+			return nil, err
+		}
+		return &CreateDBStatement{DBName: nameTok.Literal}, nil
+	}
+
 	if err := p.expect(TOKEN_TABLE); err != nil {
 		return nil, err
 	}
@@ -213,7 +336,19 @@ func (p *Parser) parseCreate() (*CreateStatement, error) {
 			return nil, err
 		}
 		typeTok := p.consume()
-		cols = append(cols, ColumnDef{Name: nameTok.Literal, DataType: typeTok.Literal})
+		col := ColumnDef{Name: nameTok.Literal, DataType: typeTok.Literal}
+
+		// check for PRIMARY KEY or UNIQUE
+		if p.peek().Type == TOKEN_PRIMARY {
+			p.consume()
+			p.consume() // eat KEY
+			col.PrimaryKey = true
+		} else if p.peek().Type == TOKEN_UNIQUE {
+			p.consume()
+			col.Unique = true
+		}
+
+		cols = append(cols, col)
 		if p.peek().Type == TOKEN_COMMA {
 			p.consume()
 		}
@@ -224,66 +359,61 @@ func (p *Parser) parseCreate() (*CreateStatement, error) {
 	return &CreateStatement{TableName: tableTok.Literal, Columns: cols}, nil
 }
 
-// ── WHERE with AND / OR ───────────────────────────────────────
+// ── USE DATABASE ──────────────────────────────────────────────
+
+func (p *Parser) parseUse() (*UseDBStatement, error) {
+	p.consume()
+	nameTok, err := p.expectIdent()
+	if err != nil {
+		return nil, err
+	}
+	return &UseDBStatement{DBName: nameTok.Literal}, nil
+}
+
+// ── SHOW DATABASES ────────────────────────────────────────────
+
+func (p *Parser) parseShow() (*ShowDBStatement, error) {
+	p.consume()
+	p.consume() // eat DATABASES
+	return &ShowDBStatement{}, nil
+}
+
+// ── WHERE with AND/OR ─────────────────────────────────────────
 
 func (p *Parser) parseWhere() (*WhereClause, error) {
 	left, err := p.parseCondition()
 	if err != nil {
 		return nil, err
 	}
-
-	// check for AND / OR
 	for p.peek().Type == TOKEN_AND || p.peek().Type == TOKEN_OR {
-		logic := p.consume().Literal // "AND" or "OR"
+		logic := p.consume().Literal
 		right, err := p.parseCondition()
 		if err != nil {
 			return nil, err
 		}
-		left = &WhereClause{
-			IsCompound: true,
-			Left:       left,
-			Right:      right,
-			Logic:      logic,
-		}
+		left = &WhereClause{IsCompound: true, Left: left, Right: right, Logic: logic}
 	}
-
 	return left, nil
 }
 
 func (p *Parser) parseCondition() (*WhereClause, error) {
+	// could be col or table.col
 	colTok, err := p.expectIdent()
 	if err != nil {
 		return nil, err
 	}
-	opTok := p.consume()
-	valTok := p.consume()
-	return &WhereClause{
-		Column:   colTok.Literal,
-		Operator: opTok.Literal,
-		Value:    valTok.Literal,
-	}, nil
-}
-
-// ── Column list ───────────────────────────────────────────────
-
-func (p *Parser) parseColumns() ([]string, error) {
-	if p.peek().Type == TOKEN_STAR {
+	colName := colTok.Literal
+	if p.peek().Type == TOKEN_DOT {
 		p.consume()
-		return []string{"*"}, nil
-	}
-	var cols []string
-	for {
-		tok, err := p.expectIdent()
+		rightTok, err := p.expectIdent()
 		if err != nil {
 			return nil, err
 		}
-		cols = append(cols, tok.Literal)
-		if p.peek().Type != TOKEN_COMMA {
-			break
-		}
-		p.consume()
+		colName = colTok.Literal + "." + rightTok.Literal
 	}
-	return cols, nil
+	opTok := p.consume()
+	valTok := p.consume()
+	return &WhereClause{Column: colName, Operator: opTok.Literal, Value: valTok.Literal}, nil
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -304,7 +434,7 @@ func (p *Parser) consume() Token {
 func (p *Parser) expect(t TokenType) error {
 	tok := p.consume()
 	if tok.Type != t {
-		return fmt.Errorf("expected token %d but got '%s'", t, tok.Literal)
+		return fmt.Errorf("expected token type %d but got '%s'", t, tok.Literal)
 	}
 	return nil
 }

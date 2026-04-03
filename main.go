@@ -1,27 +1,20 @@
 package main
 
 import (
-	"fmt"
 	"dbengine/catalog"
 	"dbengine/execution"
 	"dbengine/server"
-	"dbengine/wal"
 	sqlpkg "dbengine/sql"
-	"strings"
+	"dbengine/wal"
+	"fmt"
 )
 
 func main() {
 	fmt.Println(`
 ╔══════════════════════════════════════════╗
-║         🗄️  DB ENGINE v1.0               ║
-║     Storage · B+Tree · SQL · WAL         ║
+║         🗄️  DB ENGINE v2.0               ║
+║  Storage · B+Tree · SQL · WAL · JOIN     ║
 ╚══════════════════════════════════════════╝`)
-
-	// load catalog from disk (persistence!)
-	cat := catalog.NewCatalog("catalog.json")
-	if err := cat.Load(); err != nil {
-		fmt.Printf("⚠️  Catalog load error: %s\n", err)
-	}
 
 	walLog, err := wal.NewWAL("mydb.wal")
 	if err != nil {
@@ -29,37 +22,46 @@ func main() {
 	}
 	defer walLog.Close()
 
-	executor := execution.NewExecutor(cat)
-	defer executor.CloseAll()
-
-	// load existing tables from disk
-	fmt.Println("📂 Loading existing tables...")
-	executor.LoadExistingTables()
-
-	// only seed if no tables exist yet
-	if len(cat.GetAllTables()) == 0 {
-		fmt.Println("🌱 Fresh database — seeding demo data...")
-		seedDemoData(executor, walLog)
-	} else {
-		fmt.Println("✅ Existing data loaded — no seeding needed")
+	// default database
+	defaultCat := catalog.NewCatalog("default_catalog.json")
+	if err := defaultCat.Load(); err != nil {
+		fmt.Printf("⚠️  Catalog error: %s\n", err)
 	}
 
-	srv := server.NewServer(executor, walLog, cat)
+	defaultExec := execution.NewExecutor(defaultCat, "default_")
+	fmt.Println("📂 Loading existing tables...")
+	defaultExec.LoadExistingTables()
+	defer defaultExec.CloseAll()
+
+	// seed only if fresh
+	if len(defaultCat.GetAllTables()) == 0 {
+		fmt.Println("🌱 Seeding demo data...")
+		seedDemoData(defaultExec, walLog)
+	} else {
+		fmt.Println("✅ Existing data loaded")
+	}
+
+	// setup server with multi-database support
+	srv := server.NewServer(walLog)
+	srv.AddDatabase("default", defaultCat, defaultExec)
+
 	srv.Start(":8080")
 }
 
 func seedDemoData(executor *execution.Executor, walLog *wal.WAL) {
 	seeds := []string{
-		"CREATE TABLE users (id INT, name TEXT, age INT)",
+		"CREATE TABLE users (id INT PRIMARY KEY, name TEXT, age INT)",
 		"INSERT INTO users VALUES (1, 'Alice', 25)",
 		"INSERT INTO users VALUES (2, 'Bob', 30)",
 		"INSERT INTO users VALUES (3, 'Charlie', 22)",
 		"INSERT INTO users VALUES (4, 'Diana', 28)",
 		"INSERT INTO users VALUES (5, 'Eve', 35)",
-		"CREATE TABLE products (id INT, name TEXT, price INT)",
-		"INSERT INTO products VALUES (1, 'Laptop', 999)",
-		"INSERT INTO products VALUES (2, 'Phone', 699)",
-		"INSERT INTO products VALUES (3, 'Tablet', 449)",
+		"CREATE TABLE orders (id INT PRIMARY KEY, user_id INT, item TEXT, price INT)",
+		"INSERT INTO orders VALUES (1, 1, 'Laptop', 999)",
+		"INSERT INTO orders VALUES (2, 2, 'Phone', 699)",
+		"INSERT INTO orders VALUES (3, 1, 'Mouse', 49)",
+		"INSERT INTO orders VALUES (4, 3, 'Keyboard', 129)",
+		"INSERT INTO orders VALUES (5, 5, 'Monitor', 399)",
 	}
 	for _, q := range seeds {
 		parser := sqlpkg.NewParser(q)
@@ -73,6 +75,3 @@ func seedDemoData(executor *execution.Executor, walLog *wal.WAL) {
 	}
 	fmt.Println("✅ Demo data seeded")
 }
-
-// needed for server package
-var _ = strings.TrimSpace

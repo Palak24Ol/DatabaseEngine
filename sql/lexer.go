@@ -28,6 +28,15 @@ const (
 	TOKEN_LIMIT
 	TOKEN_AND
 	TOKEN_OR
+	TOKEN_JOIN
+	TOKEN_ON
+	TOKEN_PRIMARY
+	TOKEN_KEY
+	TOKEN_UNIQUE
+	TOKEN_DATABASE
+	TOKEN_USE
+	TOKEN_SHOW
+	TOKEN_DATABASES
 
 	TOKEN_STAR
 	TOKEN_COMMA
@@ -39,6 +48,7 @@ const (
 	TOKEN_NOT_EQUALS
 	TOKEN_GTE
 	TOKEN_LTE
+	TOKEN_DOT
 
 	TOKEN_IDENT
 	TOKEN_STRING
@@ -54,26 +64,35 @@ type Token struct {
 }
 
 var keywords = map[string]TokenType{
-	"SELECT": TOKEN_SELECT,
-	"INSERT": TOKEN_INSERT,
-	"DELETE": TOKEN_DELETE,
-	"CREATE": TOKEN_CREATE,
-	"UPDATE": TOKEN_UPDATE,
-	"SET":    TOKEN_SET,
-	"FROM":   TOKEN_FROM,
-	"INTO":   TOKEN_INTO,
-	"WHERE":  TOKEN_WHERE,
-	"VALUES": TOKEN_VALUES,
-	"TABLE":  TOKEN_TABLE,
-	"INT":    TOKEN_INT,
-	"TEXT":   TOKEN_TEXT,
-	"ORDER":  TOKEN_ORDER,
-	"BY":     TOKEN_BY,
-	"ASC":    TOKEN_ASC,
-	"DESC":   TOKEN_DESC,
-	"LIMIT":  TOKEN_LIMIT,
-	"AND":    TOKEN_AND,
-	"OR":     TOKEN_OR,
+	"SELECT":    TOKEN_SELECT,
+	"INSERT":    TOKEN_INSERT,
+	"DELETE":    TOKEN_DELETE,
+	"CREATE":    TOKEN_CREATE,
+	"UPDATE":    TOKEN_UPDATE,
+	"SET":       TOKEN_SET,
+	"FROM":      TOKEN_FROM,
+	"INTO":      TOKEN_INTO,
+	"WHERE":     TOKEN_WHERE,
+	"VALUES":    TOKEN_VALUES,
+	"TABLE":     TOKEN_TABLE,
+	"INT":       TOKEN_INT,
+	"TEXT":      TOKEN_TEXT,
+	"ORDER":     TOKEN_ORDER,
+	"BY":        TOKEN_BY,
+	"ASC":       TOKEN_ASC,
+	"DESC":      TOKEN_DESC,
+	"LIMIT":     TOKEN_LIMIT,
+	"AND":       TOKEN_AND,
+	"OR":        TOKEN_OR,
+	"JOIN":      TOKEN_JOIN,
+	"ON":        TOKEN_ON,
+	"PRIMARY":   TOKEN_PRIMARY,
+	"KEY":       TOKEN_KEY,
+	"UNIQUE":    TOKEN_UNIQUE,
+	"DATABASE":  TOKEN_DATABASE,
+	"USE":       TOKEN_USE,
+	"SHOW":      TOKEN_SHOW,
+	"DATABASES": TOKEN_DATABASES,
 }
 
 type Lexer struct {
@@ -102,9 +121,7 @@ func (l *Lexer) nextToken() Token {
 	if l.pos >= len(l.input) {
 		return Token{TOKEN_EOF, ""}
 	}
-
 	ch := l.input[l.pos]
-
 	switch ch {
 	case '*':
 		l.pos++; return Token{TOKEN_STAR, "*"}
@@ -114,6 +131,8 @@ func (l *Lexer) nextToken() Token {
 		l.pos++; return Token{TOKEN_LPAREN, "("}
 	case ')':
 		l.pos++; return Token{TOKEN_RPAREN, ")"}
+	case '.':
+		l.pos++; return Token{TOKEN_DOT, "."}
 	case '=':
 		l.pos++; return Token{TOKEN_EQUALS, "="}
 	case '>':
@@ -133,14 +152,12 @@ func (l *Lexer) nextToken() Token {
 	case '\'':
 		return l.readString()
 	}
-
 	if unicode.IsDigit(ch) {
 		return l.readNumber()
 	}
 	if unicode.IsLetter(ch) || ch == '_' {
 		return l.readIdent()
 	}
-
 	l.pos++
 	return Token{TOKEN_ILLEGAL, string(ch)}
 }
@@ -151,8 +168,8 @@ func (l *Lexer) readIdent() Token {
 		l.pos++
 	}
 	word := strings.ToUpper(string(l.input[start:l.pos]))
-	if tokType, ok := keywords[word]; ok {
-		return Token{tokType, word}
+	if tt, ok := keywords[word]; ok {
+		return Token{tt, word}
 	}
 	return Token{TOKEN_IDENT, string(l.input[start:l.pos])}
 }
