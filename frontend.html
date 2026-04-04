@@ -608,6 +608,9 @@ async function runQuery() {
   }
 }
 
+// State for pagination
+let pageState = { data: null, page: 1, pageSize: 100 };
+
 function renderResult(data) {
   const body = document.getElementById('resultsBody');
   const rb = document.getElementById('rowBadge');
@@ -616,24 +619,73 @@ function renderResult(data) {
 
   if (data.error) {
     body.innerHTML = `<div class="msg-box err">✕ ${escHtml(data.error)}</div>`;
-    rb.style.display='none'; eb.style.display='none'; return;
+    rb.style.display = 'none'; eb.style.display = 'none'; return;
   }
   if (data.message) {
     body.innerHTML = `<div class="msg-box ok">✓ ${escHtml(data.message)}</div>`;
-    rb.style.display='none'; eb.style.display='none';
+    rb.style.display = 'none'; eb.style.display = 'none';
   }
   if (data.rows?.length && data.columns) {
     currentResult = data;
-    rb.textContent = `${data.rows.length} row${data.rows.length!==1?'s':''}`;
-    rb.style.display='inline'; eb.style.display='inline';
-    const tableMatch = document.getElementById('sqlInput').value.match(/from\s+(\w+)/i);
-    const tName = tableMatch?.[1]?.toLowerCase();
-    const schema = currentTables.find(t=>t.name.toLowerCase()===tName);
-    body.appendChild(buildTable(data, tName, schema));
+    pageState = { data, page: 1, pageSize: 100 };
+    rb.textContent = `${data.rows.length} row${data.rows.length !== 1 ? 's' : ''}`;
+    rb.style.display = 'inline'; eb.style.display = 'inline';
+    renderPage();
   } else if (!data.message) {
-    body.innerHTML='<div class="empty-state"><div class="empty-icon">○</div><div class="empty-text">0 rows returned</div></div>';
-    rb.style.display='none'; eb.style.display='none';
+    body.innerHTML = '<div class="empty-state"><div class="empty-icon">○</div><div class="empty-text">0 rows returned</div></div>';
+    rb.style.display = 'none'; eb.style.display = 'none';
   }
+}
+
+function renderPage() {
+  const body = document.getElementById('resultsBody');
+  const { data, page, pageSize } = pageState;
+  const total = data.rows.length;
+  const totalPages = Math.ceil(total / pageSize);
+  const start = (page - 1) * pageSize;
+  const end = Math.min(start + pageSize, total);
+  const pageRows = data.rows.slice(start, end);
+
+  const tableMatch = document.getElementById('sqlInput').value.match(/from\s+(\w+)/i);
+  const tName = tableMatch?.[1]?.toLowerCase();
+  const schema = currentTables.find(t => t.name.toLowerCase() === tName);
+
+  // build paged data object
+  const pagedData = { columns: data.columns, rows: pageRows };
+
+  body.innerHTML = '';
+  body.appendChild(buildTable(pagedData, tName, schema));
+
+  // pagination bar
+  if (totalPages > 1) {
+    const bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0;font-size:11px;color:var(--text2)';
+    bar.innerHTML = `
+      <span>Rows ${start + 1}–${end} of ${total}</span>
+      <button onclick="changePage(-1)" style="padding:3px 10px;border-radius:5px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px" ${page === 1 ? 'disabled' : ''}>‹ Prev</button>
+      <span>Page ${page} / ${totalPages}</span>
+      <button onclick="changePage(1)" style="padding:3px 10px;border-radius:5px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px" ${page === totalPages ? 'disabled' : ''}>Next ›</button>
+      <select onchange="changePageSize(this.value)" style="padding:3px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:10px;margin-left:auto">
+        <option value="50" ${pageSize===50?'selected':''}>50 / page</option>
+        <option value="100" ${pageSize===100?'selected':''}>100 / page</option>
+        <option value="250" ${pageSize===250?'selected':''}>250 / page</option>
+        <option value="500" ${pageSize===500?'selected':''}>500 / page</option>
+      </select>`;
+    body.appendChild(bar);
+  }
+}
+
+function changePage(dir) {
+  const total = pageState.data.rows.length;
+  const totalPages = Math.ceil(total / pageState.pageSize);
+  pageState.page = Math.max(1, Math.min(totalPages, pageState.page + dir));
+  renderPage();
+}
+
+function changePageSize(size) {
+  pageState.pageSize = parseInt(size);
+  pageState.page = 1;
+  renderPage();
 }
 
 function renderErr(msg) {
@@ -867,46 +919,64 @@ function handleDrop(e) {
 function handleFilePick(e) { if(e.target.files[0]) readCSV(e.target.files[0]); }
 
 function readCSV(file) {
-  const r=new FileReader();
-  r.onload=e=>{
-    const lines=e.target.result.trim().split('\n').filter(l=>l.trim());
-    if(lines.length<2){toast('CSV needs header + data rows','err');return;}
-    const headers=lines[0].split(',').map(h=>h.trim().replace(/"/g,''));
-    const rows=lines.slice(1).map(l=>l.split(',').map(v=>v.trim().replace(/"/g,'')));
-    csvParsed={headers,rows};
-    if(!document.getElementById('csvTblName').value)
-      document.getElementById('csvTblName').value=file.name.replace('.csv','').replace(/[^a-z0-9_]/gi,'_').toLowerCase();
-    const prev=rows.slice(0,5);
-    document.getElementById('csvPreview').innerHTML=`
+  const r = new FileReader();
+  r.onload = e => {
+    const lines = e.target.result.trim().split('\n').filter(l => l.trim());
+    if (lines.length < 2) { toast('CSV needs header + data rows', 'err'); return; }
+    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    const rows = lines.slice(1).map(l => l.split(',').map(v => v.trim().replace(/"/g, '')));
+    csvParsed = { headers, rows };
+
+    if (!document.getElementById('csvTblName').value)
+      document.getElementById('csvTblName').value = file.name.replace('.csv', '')
+        .replace(/[^a-z0-9_]/gi, '_').toLowerCase();
+
+    const prev = rows.slice(0, 5);
+    document.getElementById('csvPreview').innerHTML = `
       <div class="csv-prev-title">Preview — ${rows.length} rows · ${headers.length} columns</div>
       <div class="csv-tbl-wrap">
         <table class="csv-tbl">
-          <thead><tr>${headers.map(h=>`<th>${escHtml(h)}</th>`).join('')}</tr></thead>
-          <tbody>${prev.map(r=>`<tr>${r.map(v=>`<td>${escHtml(v)}</td>`).join('')}</tr>`).join('')}</tbody>
+          <thead><tr>${headers.map(h => `<th>${escHtml(h)}</th>`).join('')}</tr></thead>
+          <tbody>${prev.map(r => `<tr>${r.map(v => `<td>${escHtml(v)}</td>`).join('')}</tr>`).join('')}</tbody>
         </table>
       </div>
-      ${rows.length>5?`<div style="font-size:10px;color:var(--text3);margin-top:6px">+${rows.length-5} more rows...</div>`:''}`;
+      ${rows.length > 5 ? `<div style="font-size:10px;color:var(--text3);margin-top:6px">+${rows.length - 5} more rows...</div>` : ''}`;
   };
   r.readAsText(file);
 }
 
+
 async function doImportCSV() {
-  if(!csvParsed){toast('Select a CSV file first','err');return;}
-  const name=document.getElementById('csvTblName').value.trim();
-  if(!name){toast('Enter a table name','err');return;}
-  const types=csvParsed.headers.map((_,i)=>csvParsed.rows.every(r=>r[i]===''||!isNaN(r[i]))?'INT':'TEXT');
-  const colDefs=csvParsed.headers.map((h,i)=>`${h} ${types[i]}`).join(', ');
+  if (!csvParsed) { toast('Select a CSV file first', 'err'); return; }
+  const name = document.getElementById('csvTblName').value.trim();
+  if (!name) { toast('Enter a table name', 'err'); return; }
+
+  // FIXED: only INT if ALL values are whole integers — decimals stay TEXT
+  const isWholeInt = v => v !== '' && /^-?\d+$/.test(v.trim());
+  const types = csvParsed.headers.map((_, i) =>
+    csvParsed.rows.every(r => r[i] === '' || isWholeInt(r[i])) ? 'INT' : 'TEXT'
+  );
+
+  const colDefs = csvParsed.headers.map((h, i) => `${h} ${types[i]}`).join(', ');
   closeModal('csvModal');
-  const cr=await sendSQL(`CREATE TABLE ${name} (${colDefs})`);
-  if(cr.error){toast('Error: '+cr.error,'err');return;}
-  let ok=0;
-  for(const row of csvParsed.rows){
-    const vals=row.map((v,i)=>types[i]==='INT'?(v||'0'):`'${v}'`).join(', ');
-    const res=await sendSQL(`INSERT INTO ${name} VALUES (${vals})`);
-    if(!res.error) ok++;
+
+  const cr = await sendSQL(`CREATE TABLE ${name} (${colDefs})`);
+  if (cr.error) { toast('Error: ' + cr.error, 'err'); return; }
+
+  let ok = 0, failed = 0;
+  for (const row of csvParsed.rows) {
+    if (row.every(v => v === '')) continue; // skip blank rows
+    const vals = row.map((v, i) => types[i] === 'INT' ? (v || '0') : `'${v.replace(/'/g, "''")}'`).join(', ');
+    const res = await sendSQL(`INSERT INTO ${name} VALUES (${vals})`);
+    if (!res.error) ok++; else failed++;
   }
-  toast(`✓ Imported ${ok} rows into '${name}'`,'ok');
-  loadTables(); setSQL(`SELECT * FROM ${name}`); runQuery();
+
+  if (failed > 0) toast(`Imported ${ok} rows (${failed} failed — check data types)`, 'ok');
+  else toast(`✓ Imported ${ok} rows into '${name}'`, 'ok');
+
+  loadTables();
+  setSQL(`SELECT * FROM ${name}`);
+  runQuery();
 }
 
 // ── EXPORT CSV ────────────────────────────────────────────────

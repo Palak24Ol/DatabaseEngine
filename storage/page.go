@@ -3,7 +3,7 @@ package storage
 import "encoding/binary"
 
 const (
-	PageSize    = 4096 // 4KB per page, same as real databases
+	PageSize    = 65536 // 4KB per page, same as real databases
 	HeaderSize  = 8    // 4 bytes for num slots, 4 bytes for free space offset
 )
 

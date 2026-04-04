@@ -1,14 +1,14 @@
 package server
 
 import (
+	"dbengine/catalog"
+	"dbengine/execution"
+	sqlpkg "dbengine/sql"
+	"dbengine/wal"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
-	"dbengine/catalog"
-	"dbengine/execution"
-	"dbengine/wal"
-	sqlpkg "dbengine/sql"
 )
 
 type dbContext struct {
@@ -112,6 +112,24 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// handle SHOW DATABASES at server level — knows ALL databases
+	if _, ok := stmt.(*sqlpkg.ShowDBStatement); ok {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		type row struct {
+			Database string `json:"Database"`
+		}
+		var rows []map[string]string
+		for name := range s.databases {
+			rows = append(rows, map[string]string{"Database": name})
+		}
+		writeJSON(w, QueryResponse{
+			Columns: []string{"Database"},
+			Rows:    rows,
+		})
+		return
+	}
+
 	s.mu.Lock()
 	ctx := s.currentContext()
 	s.mu.Unlock()
@@ -146,6 +164,7 @@ func (s *Server) createDBContext(name string) (*dbContext, error) {
 	exec.LoadExistingTables()
 	return &dbContext{catalog: cat, executor: exec}, nil
 }
+
 // ── /api/tables ───────────────────────────────────────────────
 
 func (s *Server) handleTables(w http.ResponseWriter, r *http.Request) {
@@ -236,11 +255,16 @@ func (s *Server) handleWAL(w http.ResponseWriter, r *http.Request) {
 	for _, rec := range records {
 		typeName := ""
 		switch rec.Type {
-		case 0: typeName = "BEGIN"
-		case 1: typeName = "INSERT"
-		case 2: typeName = "DELETE"
-		case 3: typeName = "COMMIT"
-		case 4: typeName = "ABORT"
+		case 0:
+			typeName = "BEGIN"
+		case 1:
+			typeName = "INSERT"
+		case 2:
+			typeName = "DELETE"
+		case 3:
+			typeName = "COMMIT"
+		case 4:
+			typeName = "ABORT"
 		}
 		entries = append(entries, WALEntry{LSN: rec.LSN, TxID: rec.TxID, Type: typeName, Table: rec.TableName})
 	}
