@@ -7,6 +7,8 @@ import (
 	sqlpkg "dbengine/sql"
 	"dbengine/wal"
 	"fmt"
+	"os"
+	"strings"
 )
 
 func main() {
@@ -22,16 +24,36 @@ func main() {
 	}
 	defer walLog.Close()
 
-	// default database
+	srv := server.NewServer(walLog)
+
+	// load default database
 	defaultCat := catalog.NewCatalog("default_catalog.json")
 	if err := defaultCat.Load(); err != nil {
 		fmt.Printf("⚠️  Catalog error: %s\n", err)
 	}
-
 	defaultExec := execution.NewExecutor(defaultCat, "default_")
 	fmt.Println("📂 Loading existing tables...")
 	defaultExec.LoadExistingTables()
 	defer defaultExec.CloseAll()
+	srv.AddDatabase("default", defaultCat, defaultExec)
+
+	// load any other databases that were previously created
+	entries, _ := os.ReadDir(".")
+	for _, entry := range entries {
+		name := entry.Name()
+		// find all *_catalog.json files that aren't default
+		if strings.HasSuffix(name, "_catalog.json") && name != "default_catalog.json" {
+			dbName := strings.TrimSuffix(name, "_catalog.json")
+			fmt.Printf("📂 Loading database: %s\n", dbName)
+			cat := catalog.NewCatalog(name)
+			if err := cat.Load(); err != nil {
+				continue
+			}
+			exec := execution.NewExecutor(cat, dbName+"_")
+			exec.LoadExistingTables()
+			srv.AddDatabase(dbName, cat, exec)
+		}
+	}
 
 	// seed only if fresh
 	if len(defaultCat.GetAllTables()) == 0 {
@@ -40,10 +62,6 @@ func main() {
 	} else {
 		fmt.Println("✅ Existing data loaded")
 	}
-
-	// setup server with multi-database support
-	srv := server.NewServer(walLog)
-	srv.AddDatabase("default", defaultCat, defaultExec)
 
 	srv.Start(":8080")
 }

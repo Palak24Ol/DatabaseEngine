@@ -47,7 +47,6 @@
     }
   ],
   "databases": [
-    "default",
-    "shop"
+    "default"
   ]
 }

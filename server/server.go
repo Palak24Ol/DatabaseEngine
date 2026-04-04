@@ -81,7 +81,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// handle USE DATABASE specially — switches server context
+	// handle USE DATABASE
 	if useStmt, ok := stmt.(*sqlpkg.UseDBStatement); ok {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -91,6 +91,24 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		}
 		s.currentDB = useStmt.DBName
 		writeJSON(w, QueryResponse{Message: fmt.Sprintf("Switched to database '%s'", useStmt.DBName)})
+		return
+	}
+
+	// handle CREATE DATABASE — create executor context immediately
+	if createStmt, ok := stmt.(*sqlpkg.CreateDBStatement); ok {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if _, exists := s.databases[createStmt.DBName]; exists {
+			writeJSON(w, QueryResponse{Error: fmt.Sprintf("database '%s' already exists", createStmt.DBName)})
+			return
+		}
+		ctx, err := s.createDBContext(createStmt.DBName)
+		if err != nil {
+			writeJSON(w, QueryResponse{Error: err.Error()})
+			return
+		}
+		s.databases[createStmt.DBName] = ctx
+		writeJSON(w, QueryResponse{Message: fmt.Sprintf("Database '%s' created", createStmt.DBName)})
 		return
 	}
 
@@ -118,6 +136,16 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// createDBContext creates a fresh catalog + executor for a new database
+func (s *Server) createDBContext(name string) (*dbContext, error) {
+	cat := catalog.NewCatalog(name + "_catalog.json")
+	if err := cat.Load(); err != nil {
+		return nil, err
+	}
+	exec := execution.NewExecutor(cat, name+"_")
+	exec.LoadExistingTables()
+	return &dbContext{catalog: cat, executor: exec}, nil
+}
 // ── /api/tables ───────────────────────────────────────────────
 
 func (s *Server) handleTables(w http.ResponseWriter, r *http.Request) {
