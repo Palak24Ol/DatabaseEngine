@@ -441,8 +441,17 @@ func (p *Parser) expect(t TokenType) error {
 
 func (p *Parser) expectIdent() (Token, error) {
 	tok := p.consume()
-	if tok.Type != TOKEN_IDENT {
-		return Token{}, fmt.Errorf("expected identifier but got '%s'", tok.Literal)
+	// accept any keyword as an identifier in column name position
+	// e.g. "text", "language", "key", "by", "set" etc.
+	if tok.Type == TOKEN_IDENT {
+		return tok, nil
 	}
-	return tok, nil
+	// if it's a keyword, treat it as an identifier
+	if tok.Type != TOKEN_EOF && tok.Type != TOKEN_ILLEGAL &&
+		tok.Type != TOKEN_COMMA && tok.Type != TOKEN_LPAREN &&
+		tok.Type != TOKEN_RPAREN && tok.Type != TOKEN_EQUALS &&
+		tok.Type != TOKEN_STAR {
+		return Token{Type: TOKEN_IDENT, Literal: tok.Literal}, nil
+	}
+	return Token{}, fmt.Errorf("expected identifier but got '%s'", tok.Literal)
 }

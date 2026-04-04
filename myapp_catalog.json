@@ -159,6 +159,36 @@
           "constraint": 0
         }
       ]
+    },
+    {
+      "table_name": "val_final",
+      "columns": [
+        {
+          "name": "TEXT",
+          "data_type": 1,
+          "constraint": 0
+        },
+        {
+          "name": "label",
+          "data_type": 1,
+          "constraint": 0
+        },
+        {
+          "name": "language",
+          "data_type": 1,
+          "constraint": 0
+        },
+        {
+          "name": "source",
+          "data_type": 1,
+          "constraint": 0
+        },
+        {
+          "name": "length",
+          "data_type": 1,
+          "constraint": 0
+        }
+      ]
     }
   ],
   "databases": [
