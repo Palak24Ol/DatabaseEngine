@@ -235,6 +235,38 @@ input[type=checkbox]{accent-color:var(--accent);cursor:pointer;width:14px;height
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
 ::-webkit-scrollbar-thumb:hover{background:var(--text3)}
+
+/* ER DIAGRAM */
+.er-panel{position:fixed;inset:52px 0 0 230px;z-index:300;background:var(--bg);display:none;flex-direction:column;overflow:hidden}
+.er-panel.open{display:flex}
+.er-bar{padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;gap:10px;flex-shrink:0}
+.er-canvas{flex:1;overflow:auto;padding:32px;display:flex;flex-wrap:wrap;gap:24px;align-content:flex-start}
+.er-table{background:var(--surface);border:1px solid var(--border2);border-radius:10px;min-width:180px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.4)}
+.er-table-head{padding:10px 14px;background:linear-gradient(135deg,rgba(0,229,195,.1),rgba(77,159,255,.1));border-bottom:1px solid var(--border2);font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--accent);display:flex;align-items:center;gap:8px}
+.er-col{padding:6px 14px;font-size:11px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,.03);color:var(--text2)}
+.er-col:last-child{border-bottom:none}
+.er-col .col-name{flex:1}
+.er-fk-line{font-size:10px;color:var(--orange);margin-left:auto}
+
+/* INDEX MANAGER */
+.idx-panel{position:fixed;right:0;top:52px;bottom:0;width:360px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:200;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1)}
+.idx-panel.open{transform:none}
+.idx-head{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.idx-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;flex:1}
+.idx-close{background:transparent;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1}
+.idx-body{flex:1;overflow-y:auto;padding:16px}
+.idx-card{background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px}
+.idx-info{flex:1}
+.idx-name{font-size:12px;color:var(--accent);font-weight:600}
+.idx-detail{font-size:10px;color:var(--text3);margin-top:3px}
+.idx-drop{padding:3px 8px;border-radius:4px;border:1px solid rgba(255,77,114,.3);background:transparent;color:var(--error);font-size:10px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .15s}
+.idx-drop:hover{background:var(--error);color:#fff}
+.idx-create{margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
+.idx-create-title{font-size:11px;color:var(--text2);margin-bottom:12px;font-weight:600}
+.idx-row{display:flex;gap:8px;margin-bottom:8px}
+.idx-row .form-input,.idx-row .form-select{font-size:11px;padding:7px 10px}
+.create-idx-btn{width:100%;padding:8px;border-radius:6px;background:var(--accent-dim);border:1px solid var(--accent-border);color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;transition:all .15s;margin-top:4px}
+.create-idx-btn:hover{background:rgba(0,229,195,.15)}
 </style>
 </head>
 <body>
@@ -259,6 +291,8 @@ input[type=checkbox]{accent-color:var(--accent);cursor:pointer;width:14px;height
     <button class="top-btn" onclick="openDesigner()">＋ New Table</button>
     <button class="top-btn" onclick="openCSV()">⬆ Import CSV</button>
     <button class="top-btn" id="walToggle" onclick="toggleWAL()">WAL Log</button>
+    <button class="top-btn" id="erToggle" onclick="toggleER()">ER Diagram</button>
+<button class="top-btn" id="idxToggle" onclick="toggleIndexes()">Indexes</button>
   </div>
 </div>
 
@@ -578,6 +612,9 @@ function buildQuickBar() {
     ['SUM', 'SELECT SUM(price) FROM orders'],
     ['CREATE DB', 'CREATE DATABASE myapp'],
     ['SHOW DB', 'SHOW DATABASES'],
+    ['EXPLAIN SELECT', 'EXPLAIN SELECT * FROM users WHERE id = 1'],
+    ['CREATE INDEX', 'CREATE INDEX idx_age ON users(age)'],
+
   ];
   document.getElementById('quickBar').innerHTML = chips.map(([l,s])=>
     `<button class="q-chip" onclick="setSQL(\`${s}\`)">${l}</button>`).join('');
@@ -1022,6 +1059,174 @@ function toast(msg,type='ok'){
 }
 
 function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+// ── ER DIAGRAM ────────────────────────────────────────────────
+let erOpen = false;
+let idxOpen = false;
+
+function toggleER() {
+  erOpen = !erOpen;
+  document.getElementById('erPanel').classList.toggle('open', erOpen);
+  document.getElementById('erToggle').classList.toggle('active', erOpen);
+  if (erOpen) loadER();
+}
+
+async function loadER() {
+  const canvas = document.getElementById('erCanvas');
+  canvas.innerHTML = '<div class="empty-state"><div class="empty-text">Loading schema...</div></div>';
+  try {
+    const tables = await (await fetch(`${API}/api/schema`)).json();
+    if (!tables?.length) { canvas.innerHTML='<div class="empty-state"><div class="empty-text">No tables yet</div></div>'; return; }
+    document.getElementById('erSubtitle').textContent = `${tables.length} table${tables.length!==1?'s':''}`;
+    canvas.innerHTML = '';
+
+    // collect FK relationships
+    const fks = [];
+    tables.forEach(t => {
+      (t.columns||[]).forEach(c => {
+        if (c.fk) fks.push({ from: t.name, fromCol: c.name, to: c.fk.ref_table, toCol: c.fk.ref_column });
+      });
+    });
+
+    tables.forEach(t => {
+      const card = document.createElement('div');
+      card.className = 'er-table';
+      card.id = `er-${t.name}`;
+      card.innerHTML = `
+        <div class="er-table-head">
+          <span>⊞</span> ${t.name}
+          <span style="margin-left:auto;font-size:10px;color:var(--text3);font-family:'JetBrains Mono',monospace;font-weight:400">${(t.columns||[]).length} cols</span>
+        </div>
+        ${(t.columns||[]).map(c => `
+          <div class="er-col">
+            ${c.constraint==='PRIMARY KEY'?'<span class="pk-badge">PK</span>':''}
+            ${c.constraint==='UNIQUE'?'<span class="uq-badge">UQ</span>':''}
+            ${c.fk?'<span style="color:var(--orange);font-size:10px">FK</span>':''}
+            <span class="col-name">${c.name}</span>
+            <span class="col-badge">${c.type}</span>
+            ${c.fk?`<span class="er-fk-line">→ ${c.fk.ref_table}</span>`:''}
+          </div>`).join('')}
+      `;
+      canvas.appendChild(card);
+    });
+
+    // show FK summary below cards
+    if (fks.length) {
+      const fkDiv = document.createElement('div');
+      fkDiv.style.cssText='width:100%;padding:16px;background:var(--surface);border-radius:10px;border:1px solid var(--border2)';
+      fkDiv.innerHTML=`<div style="font-size:11px;color:var(--text2);font-weight:600;margin-bottom:10px">FOREIGN KEY RELATIONSHIPS</div>
+        ${fks.map(f=>`<div style="font-size:11px;color:var(--text3);padding:4px 0;border-bottom:1px solid var(--border)">
+          <span style="color:var(--accent)">${f.from}.${f.fromCol}</span>
+          <span style="color:var(--orange)"> → </span>
+          <span style="color:var(--blue)">${f.to}.${f.toCol}</span>
+        </div>`).join('')}`;
+      canvas.appendChild(fkDiv);
+    }
+  } catch { canvas.innerHTML='<div class="empty-state"><div class="empty-text">Cannot load schema</div></div>'; }
+}
+
+// ── INDEX MANAGER ─────────────────────────────────────────────
+function toggleIndexes() {
+  idxOpen = !idxOpen;
+  document.getElementById('idxPanel').classList.toggle('open', idxOpen);
+  document.getElementById('idxToggle').classList.toggle('active', idxOpen);
+  if (idxOpen) { loadIndexes(); populateIdxTables(); }
+}
+
+async function loadIndexes() {
+  const el = document.getElementById('idxList');
+  try {
+    const data = await (await fetch(`${API}/api/indexes`)).json();
+    if (!data?.length) { el.innerHTML='<div class="hist-empty">No indexes yet.<br>Create one below!</div>'; return; }
+    el.innerHTML = data.map(idx=>`
+      <div class="idx-card">
+        <div class="idx-info">
+          <div class="idx-name">${idx.name} ${idx.unique?'<span class="uq-badge">UNIQUE</span>':''}</div>
+          <div class="idx-detail">${idx.table_name}(${idx.column}) · B+ Tree</div>
+        </div>
+        <button class="idx-drop" onclick="dropIndex('${idx.name}')">Drop</button>
+      </div>`).join('');
+  } catch { el.innerHTML='<div class="hist-empty">Cannot load indexes</div>'; }
+}
+
+function populateIdxTables() {
+  const sel = document.getElementById('idxTable');
+  sel.innerHTML = '<option value="">— table —</option>';
+  currentTables.forEach(t => {
+    const o = document.createElement('option');
+    o.value = t.name; o.textContent = t.name;
+    sel.appendChild(o);
+  });
+}
+
+function populateIdxCols() {
+  const tblName = document.getElementById('idxTable').value;
+  const sel = document.getElementById('idxCol');
+  sel.innerHTML = '<option value="">— column —</option>';
+  const tbl = currentTables.find(t => t.name === tblName);
+  if (!tbl) return;
+  tbl.columns.forEach(c => {
+    const o = document.createElement('option');
+    o.value = c.name; o.textContent = `${c.name} (${c.type})`;
+    sel.appendChild(o);
+  });
+}
+
+async function createIndex() {
+  const name = document.getElementById('idxName').value.trim();
+  const tbl  = document.getElementById('idxTable').value;
+  const col  = document.getElementById('idxCol').value;
+  const uniq = document.getElementById('idxUnique').checked;
+  if (!name || !tbl || !col) { toast('Fill all index fields', 'err'); return; }
+  const sql = `CREATE ${uniq?'UNIQUE ':''} INDEX ${name} ON ${tbl}(${col})`;
+  setSQL(sql); toggleIndexes(); await runQuery(); loadIndexes();
+}
+
+async function dropIndex(name) {
+  setSQL(`DROP INDEX ${name}`);
+  await runQuery(); loadIndexes(); toast(`Index '${name}' dropped`, 'ok');
+}
 </script>
+<!-- ER DIAGRAM PANEL -->
+<div class="er-panel" id="erPanel">
+  <div class="er-bar">
+    <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px">ER Diagram</span>
+    <span style="font-size:11px;color:var(--text3)" id="erSubtitle"></span>
+    <button class="wal-ref" onclick="loadER()">↻ Refresh</button>
+    <button class="wal-ref" onclick="toggleER()">✕ Close</button>
+  </div>
+  <div class="er-canvas" id="erCanvas">
+    <div class="empty-state"><div class="empty-text">Loading schema...</div></div>
+  </div>
+</div>
+
+<!-- INDEX MANAGER -->
+<div class="idx-panel" id="idxPanel">
+  <div class="idx-head">
+    <span class="idx-title">⚡ Index Manager</span>
+    <button class="idx-close" onclick="toggleIndexes()">×</button>
+  </div>
+  <div class="idx-body">
+    <div id="idxList"><div class="hist-empty">Loading...</div></div>
+    <div class="idx-create">
+      <div class="idx-create-title">CREATE NEW INDEX</div>
+      <div class="idx-row">
+        <input class="form-input" id="idxName" placeholder="index name" style="flex:1">
+      </div>
+      <div class="idx-row">
+        <select class="form-select" id="idxTable" onchange="populateIdxCols()" style="flex:1">
+          <option value="">— table —</option>
+        </select>
+        <select class="form-select" id="idxCol" style="flex:1">
+          <option value="">— column —</option>
+        </select>
+      </div>
+      <div class="idx-row" style="align-items:center;gap:8px">
+        <input type="checkbox" id="idxUnique">
+        <label style="font-size:11px;color:var(--text2);cursor:pointer" for="idxUnique">UNIQUE index</label>
+      </div>
+      <button class="create-idx-btn" onclick="createIndex()">+ Create Index</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

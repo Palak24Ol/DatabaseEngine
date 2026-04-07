@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"dbengine/catalog"
+	"dbengine/index"
 	"dbengine/storage"
 	sqlpkg "dbengine/sql"
 )
@@ -25,7 +26,8 @@ type Executor struct {
 	catalog      *catalog.Catalog
 	heapFiles    map[string]*storage.HeapFile
 	diskManagers map[string]*storage.DiskManager
-	prefix       string // database prefix for file names
+	prefix       string
+	indexes      map[string]*index.BPlusTree
 }
 
 func NewExecutor(cat *catalog.Catalog, prefix string) *Executor {
@@ -34,9 +36,11 @@ func NewExecutor(cat *catalog.Catalog, prefix string) *Executor {
 		heapFiles:    make(map[string]*storage.HeapFile),
 		diskManagers: make(map[string]*storage.DiskManager),
 		prefix:       prefix,
+		indexes:      make(map[string]*index.BPlusTree),
 	}
 }
 
+// LoadExistingTables opens heap files for all tables already in catalog
 func (e *Executor) LoadExistingTables() {
 	for _, schema := range e.catalog.GetAllTables() {
 		filename := e.prefix + schema.TableName + ".db"
@@ -66,6 +70,12 @@ func (e *Executor) Execute(stmt sqlpkg.Statement) (*Result, error) {
 		return e.executeCreateDB(s)
 	case *sqlpkg.ShowDBStatement:
 		return e.executeShowDB()
+	case *sqlpkg.ExplainStatement:
+		return e.executeExplain(s)
+	case *sqlpkg.CreateIndexStatement:
+		return e.executeCreateIndex(s)
+	case *sqlpkg.DropIndexStatement:
+		return e.executeDropIndex(s)
 	default:
 		return nil, fmt.Errorf("unsupported statement")
 	}
@@ -86,8 +96,20 @@ func (e *Executor) executeCreate(stmt *sqlpkg.CreateStatement) (*Result, error) 
 		} else if c.Unique {
 			constraint = catalog.CONSTRAINT_UNIQUE
 		}
-		cols = append(cols, catalog.Column{Name: c.Name, DataType: dt, Constraint: constraint})
+		col := catalog.Column{
+			Name:       c.Name,
+			DataType:   dt,
+			Constraint: constraint,
+		}
+		if c.ForeignKey != nil {
+			col.ForeignKey = &catalog.ForeignKey{
+				RefTable:  c.ForeignKey.RefTable,
+				RefColumn: c.ForeignKey.RefColumn,
+			}
+		}
+		cols = append(cols, col)
 	}
+
 	schema := &catalog.TableSchema{TableName: stmt.TableName, Columns: cols}
 	if err := e.catalog.CreateTable(schema); err != nil {
 		return nil, err
@@ -95,7 +117,9 @@ func (e *Executor) executeCreate(stmt *sqlpkg.CreateStatement) (*Result, error) 
 	if err := e.initTable(stmt.TableName); err != nil {
 		return nil, err
 	}
-	return &Result{Message: fmt.Sprintf("Table '%s' created with %d column(s)", stmt.TableName, len(cols))}, nil
+	return &Result{
+		Message: fmt.Sprintf("Table '%s' created with %d column(s)", stmt.TableName, len(cols)),
+	}, nil
 }
 
 // ── CREATE DATABASE ───────────────────────────────────────────
@@ -129,8 +153,13 @@ func (e *Executor) executeInsert(stmt *sqlpkg.InsertStatement) (*Result, error) 
 		return nil, fmt.Errorf("expected %d values but got %d", len(schema.Columns), len(stmt.Values))
 	}
 
-	// check PRIMARY KEY and UNIQUE constraints
+	// check constraints
 	if err := e.checkConstraints(schema, stmt.Values); err != nil {
+		return nil, err
+	}
+
+	// check foreign key references
+	if err := e.checkForeignKeys(schema, stmt.Values); err != nil {
 		return nil, err
 	}
 
@@ -138,6 +167,7 @@ func (e *Executor) executeInsert(stmt *sqlpkg.InsertStatement) (*Result, error) 
 	if err != nil {
 		return nil, err
 	}
+
 	heap, err := e.getHeapFile(stmt.TableName)
 	if err != nil {
 		return nil, err
@@ -154,7 +184,6 @@ func (e *Executor) checkConstraints(schema *catalog.TableSchema, values []string
 		return nil
 	}
 
-	// find constrained columns
 	type check struct {
 		idx        int
 		colName    string
@@ -194,10 +223,47 @@ func (e *Executor) checkConstraints(schema *catalog.TableSchema, values []string
 	return violationErr
 }
 
-// ── SELECT with JOIN + Aggregates ─────────────────────────────
+func (e *Executor) checkForeignKeys(schema *catalog.TableSchema, values []string) error {
+	for i, col := range schema.Columns {
+		if col.ForeignKey == nil {
+			continue
+		}
+		val := values[i]
+		refSchema, err := e.catalog.GetTable(col.ForeignKey.RefTable)
+		if err != nil {
+			continue
+		}
+		refHeap, err := e.getHeapFile(col.ForeignKey.RefTable)
+		if err != nil {
+			continue
+		}
+
+		found := false
+		refSchema.GetColumnIndex(col.ForeignKey.RefColumn)
+		refHeap.Scan(func(rid storage.RID, data []byte) {
+			if found {
+				return
+			}
+			row, err := deserializeRow(refSchema, data)
+			if err != nil {
+				return
+			}
+			if row[col.ForeignKey.RefColumn] == val {
+				found = true
+			}
+		})
+
+		if !found {
+			return fmt.Errorf("FOREIGN KEY violation: value '%s' not found in %s(%s)",
+				val, col.ForeignKey.RefTable, col.ForeignKey.RefColumn)
+		}
+	}
+	return nil
+}
+
+// ── SELECT with JOIN + Aggregates + ORDER BY + LIMIT ─────────
 
 func (e *Executor) executeSelect(stmt *sqlpkg.SelectStatement) (*Result, error) {
-	// get rows (with or without JOIN)
 	var rows []Row
 	var allCols []string
 
@@ -215,10 +281,12 @@ func (e *Executor) executeSelect(stmt *sqlpkg.SelectStatement) (*Result, error) 
 		for _, col := range schema.Columns {
 			allCols = append(allCols, col.Name)
 		}
+
 		heap, err := e.getHeapFile(stmt.TableName)
 		if err != nil {
 			return nil, err
 		}
+
 		heap.Scan(func(rid storage.RID, data []byte) {
 			row, err := deserializeRow(schema, data)
 			if err != nil {
@@ -231,7 +299,7 @@ func (e *Executor) executeSelect(stmt *sqlpkg.SelectStatement) (*Result, error) 
 		})
 	}
 
-	// check if any aggregates
+	// check for aggregates
 	hasAgg := false
 	for _, expr := range stmt.Exprs {
 		if expr.AggFunc != "" {
@@ -244,7 +312,7 @@ func (e *Executor) executeSelect(stmt *sqlpkg.SelectStatement) (*Result, error) 
 		return e.computeAggregates(stmt.Exprs, rows)
 	}
 
-	// resolve columns to project
+	// resolve columns
 	resultCols := resolveColumns(stmt.Exprs, allCols)
 
 	// project
@@ -307,7 +375,7 @@ func (e *Executor) executeJoin(stmt *sqlpkg.SelectStatement) ([]Row, []string, e
 		return nil, nil, err
 	}
 
-	// collect all right rows first (for nested loop efficiency)
+	// collect right rows
 	var rightRows []Row
 	rightHeap.Scan(func(rid storage.RID, data []byte) {
 		row, err := deserializeRow(rightSchema, data)
@@ -317,7 +385,7 @@ func (e *Executor) executeJoin(stmt *sqlpkg.SelectStatement) ([]Row, []string, e
 		rightRows = append(rightRows, row)
 	})
 
-	// build all column names (qualified)
+	// build qualified column list
 	var allCols []string
 	for _, col := range leftSchema.Columns {
 		allCols = append(allCols, stmt.TableName+"."+col.Name)
@@ -334,20 +402,17 @@ func (e *Executor) executeJoin(stmt *sqlpkg.SelectStatement) ([]Row, []string, e
 		if err != nil {
 			return
 		}
-
 		for _, rightRow := range rightRows {
-			// check ON condition
 			leftVal := leftRow[j.LeftCol]
 			rightVal := rightRow[j.RightCol]
 			if leftVal != rightVal {
 				continue
 			}
 
-			// merge rows with qualified keys
 			merged := make(Row)
 			for k, v := range leftRow {
 				merged[stmt.TableName+"."+k] = v
-				merged[k] = v // also unqualified
+				merged[k] = v
 			}
 			for k, v := range rightRow {
 				merged[stmt.Join.TableName+"."+k] = v
@@ -356,11 +421,9 @@ func (e *Executor) executeJoin(stmt *sqlpkg.SelectStatement) ([]Row, []string, e
 				}
 			}
 
-			// apply WHERE on merged row
 			if stmt.Where != nil && !applyFilter(merged, stmt.Where) {
 				continue
 			}
-
 			result = append(result, merged)
 		}
 	})
@@ -483,7 +546,9 @@ func (e *Executor) executeUpdate(stmt *sqlpkg.UpdateStatement) (*Result, error) 
 		heap.InsertTuple(j.newData)
 	}
 
-	return &Result{Message: fmt.Sprintf("%d row(s) updated in '%s'", len(jobs), stmt.TableName)}, nil
+	return &Result{
+		Message: fmt.Sprintf("%d row(s) updated in '%s'", len(jobs), stmt.TableName),
+	}, nil
 }
 
 // ── DELETE ────────────────────────────────────────────────────
@@ -508,13 +573,207 @@ func (e *Executor) executeDelete(stmt *sqlpkg.DeleteStatement) (*Result, error) 
 			toDelete = append(toDelete, rid)
 		}
 	})
+
 	for _, rid := range toDelete {
 		heap.DeleteTuple(rid)
 	}
-	return &Result{Message: fmt.Sprintf("%d row(s) deleted from '%s'", len(toDelete), stmt.TableName)}, nil
+
+	return &Result{
+		Message: fmt.Sprintf("%d row(s) deleted from '%s'", len(toDelete), stmt.TableName),
+	}, nil
 }
 
-// ── WHERE filter with AND/OR + qualified cols ─────────────────
+// ── EXPLAIN ───────────────────────────────────────────────────
+
+func (e *Executor) executeExplain(stmt *sqlpkg.ExplainStatement) (*Result, error) {
+	var steps []Row
+	stepNum := 1
+
+	add := func(op, detail, cost string) {
+		steps = append(steps, Row{
+			"Step":      strconv.Itoa(stepNum),
+			"Operation": op,
+			"Detail":    detail,
+			"Est. Cost": cost,
+		})
+		stepNum++
+	}
+
+	switch s := stmt.Inner.(type) {
+	case *sqlpkg.SelectStatement:
+		schema, err := e.catalog.GetTable(s.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		// check for index on WHERE column
+		hasIndex := false
+		if s.Where != nil && !s.Where.IsCompound {
+			idxKey := s.TableName + "_" + s.Where.Column + "_idx"
+			if e.indexes[idxKey] != nil {
+				hasIndex = true
+			}
+		}
+
+		add("SCAN TABLE",
+			fmt.Sprintf("table=%s (%d columns)", s.TableName, len(schema.Columns)),
+			"O(n)")
+
+		if s.Where != nil {
+			if hasIndex {
+				add("INDEX SCAN",
+					fmt.Sprintf("B+ tree index on '%s'", s.Where.Column),
+					"O(log n) ⚡")
+			} else {
+				add("FILTER",
+					fmt.Sprintf("WHERE %s %s %s", s.Where.Column, s.Where.Operator, s.Where.Value),
+					"O(n)")
+			}
+		}
+
+		if s.Join != nil {
+			add("NESTED LOOP JOIN",
+				fmt.Sprintf("%s ⋈ %s ON %s.%s = %s.%s",
+					s.TableName, s.Join.TableName,
+					s.Join.LeftTable, s.Join.LeftCol,
+					s.Join.RightTable, s.Join.RightCol),
+				"O(n²)")
+		}
+
+		hasAgg := false
+		for _, expr := range s.Exprs {
+			if expr.AggFunc != "" {
+				hasAgg = true
+				break
+			}
+		}
+		if hasAgg {
+			add("AGGREGATE", "compute COUNT/SUM/AVG/MAX/MIN over result set", "O(n)")
+		}
+
+		if s.OrderBy != nil {
+			dir := "ASC"
+			if s.OrderBy.Desc {
+				dir = "DESC"
+			}
+			add("SORT",
+				fmt.Sprintf("ORDER BY %s %s", s.OrderBy.Column, dir),
+				"O(n log n)")
+		}
+
+		if s.Limit > 0 {
+			add("LIMIT", fmt.Sprintf("return first %d rows", s.Limit), "O(1)")
+		}
+
+		cols := "*"
+		if len(s.Exprs) > 0 && !s.Exprs[0].Star {
+			var colNames []string
+			for _, expr := range s.Exprs {
+				colNames = append(colNames, expr.DisplayName())
+			}
+			cols = strings.Join(colNames, ", ")
+		}
+		add("PROJECT", fmt.Sprintf("columns: %s", cols), "O(n)")
+
+	case *sqlpkg.InsertStatement:
+		add("CONSTRAINT CHECK", "verify PRIMARY KEY / UNIQUE constraints", "O(n)")
+		add("FK CHECK", "verify FOREIGN KEY references", "O(n)")
+		add("SERIALIZE ROW", "encode values to binary format", "O(1)")
+		add("HEAP INSERT", fmt.Sprintf("append to %s.db page", s.TableName), "O(1)")
+		add("WAL WRITE", "write INSERT record to WAL", "O(1)")
+
+	case *sqlpkg.UpdateStatement:
+		add("SCAN TABLE", fmt.Sprintf("scan all rows in %s", s.TableName), "O(n)")
+		if s.Where != nil {
+			add("FILTER",
+				fmt.Sprintf("WHERE %s %s %s", s.Where.Column, s.Where.Operator, s.Where.Value),
+				"O(n)")
+		}
+		add("TOMBSTONE DELETE", "mark matched rows as deleted (flag=0x00)", "O(k)")
+		add("HEAP INSERT", "write new version of row", "O(k)")
+		add("WAL WRITE", "write UPDATE record to WAL", "O(1)")
+
+	case *sqlpkg.DeleteStatement:
+		add("SCAN TABLE", fmt.Sprintf("scan all rows in %s", s.TableName), "O(n)")
+		if s.Where != nil {
+			add("FILTER",
+				fmt.Sprintf("WHERE %s %s %s", s.Where.Column, s.Where.Operator, s.Where.Value),
+				"O(n)")
+		}
+		add("TOMBSTONE", "set deleted flag on matching rows", "O(k)")
+		add("WAL WRITE", "write DELETE record to WAL", "O(1)")
+
+	default:
+		add("UNKNOWN", "cannot explain this statement type", "—")
+	}
+
+	return &Result{
+		Columns: []string{"Step", "Operation", "Detail", "Est. Cost"},
+		Rows:    steps,
+	}, nil
+}
+
+// ── CREATE INDEX ──────────────────────────────────────────────
+
+func (e *Executor) executeCreateIndex(stmt *sqlpkg.CreateIndexStatement) (*Result, error) {
+	schema, err := e.catalog.GetTable(stmt.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := schema.GetColumnIndex(stmt.Column); err != nil {
+		return nil, fmt.Errorf("column '%s' not found in table '%s'", stmt.Column, stmt.TableName)
+	}
+
+	tree := index.NewBPlusTree()
+	heap, err := e.getHeapFile(stmt.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	rowNum := 0
+	heap.Scan(func(rid storage.RID, data []byte) {
+		row, err := deserializeRow(schema, data)
+		if err != nil {
+			return
+		}
+		val := row[stmt.Column]
+		if num, err := strconv.Atoi(val); err == nil {
+			tree.Insert(num, rid.Offset)
+		}
+		rowNum++
+	})
+
+	idxKey := stmt.TableName + "_" + stmt.Column + "_idx"
+	e.indexes[idxKey] = tree
+
+	e.catalog.AddIndex(catalog.IndexInfo{
+		Name:      stmt.IndexName,
+		TableName: stmt.TableName,
+		Column:    stmt.Column,
+		Unique:    stmt.Unique,
+	})
+
+	return &Result{
+		Message: fmt.Sprintf("Index '%s' created on %s(%s) — %d rows indexed",
+			stmt.IndexName, stmt.TableName, stmt.Column, rowNum),
+	}, nil
+}
+
+// ── DROP INDEX ────────────────────────────────────────────────
+
+func (e *Executor) executeDropIndex(stmt *sqlpkg.DropIndexStatement) (*Result, error) {
+	info := e.catalog.GetIndex(stmt.IndexName)
+	if info == nil {
+		return nil, fmt.Errorf("index '%s' not found", stmt.IndexName)
+	}
+	key := info.TableName + "_" + info.Column + "_idx"
+	delete(e.indexes, key)
+	e.catalog.DropIndex(stmt.IndexName)
+	return &Result{Message: fmt.Sprintf("Index '%s' dropped", stmt.IndexName)}, nil
+}
+
+// ── WHERE filter with AND/OR ──────────────────────────────────
 
 func applyFilter(row Row, where *sqlpkg.WhereClause) bool {
 	if where.IsCompound {
@@ -527,7 +786,6 @@ func applyFilter(row Row, where *sqlpkg.WhereClause) bool {
 	}
 
 	val := resolveCol(row, where.Column)
-
 	rn, rerr := strconv.Atoi(val)
 	wn, werr := strconv.Atoi(where.Value)
 
@@ -547,37 +805,6 @@ func applyFilter(row Row, where *sqlpkg.WhereClause) bool {
 	case "!=": return val != where.Value
 	}
 	return false
-}
-
-// resolveCol handles both "col" and "table.col" lookups
-func resolveCol(row Row, col string) string {
-	if val, ok := row[col]; ok {
-		return val
-	}
-	// try qualified lookup: find any key ending in ".col"
-	suffix := "." + col
-	for k, v := range row {
-		if strings.HasSuffix(k, suffix) {
-			return v
-		}
-	}
-	return ""
-}
-
-// resolveColumns expands * and returns final column list
-func resolveColumns(exprs []sqlpkg.SelectExpr, allCols []string) []string {
-	if len(exprs) == 1 && exprs[0].Star {
-		return allCols
-	}
-	var cols []string
-	for _, expr := range exprs {
-		if expr.Star {
-			cols = append(cols, allCols...)
-		} else {
-			cols = append(cols, expr.DisplayName())
-		}
-	}
-	return cols
 }
 
 // ── Serialization ─────────────────────────────────────────────
@@ -632,7 +859,37 @@ func deserializeRow(schema *catalog.TableSchema, data []byte) (Row, error) {
 	return row, nil
 }
 
-// ── Helpers ───────────────────────────────────────────────────
+// ── Column resolution helpers ─────────────────────────────────
+
+func resolveCol(row Row, col string) string {
+	if val, ok := row[col]; ok {
+		return val
+	}
+	suffix := "." + col
+	for k, v := range row {
+		if strings.HasSuffix(k, suffix) {
+			return v
+		}
+	}
+	return ""
+}
+
+func resolveColumns(exprs []sqlpkg.SelectExpr, allCols []string) []string {
+	if len(exprs) == 1 && exprs[0].Star {
+		return allCols
+	}
+	var cols []string
+	for _, expr := range exprs {
+		if expr.Star {
+			cols = append(cols, allCols...)
+		} else {
+			cols = append(cols, expr.DisplayName())
+		}
+	}
+	return cols
+}
+
+// ── Storage helpers ───────────────────────────────────────────
 
 func (e *Executor) initTable(tableName string) error {
 	disk, err := storage.NewDiskManager(e.prefix + tableName + ".db")
@@ -648,7 +905,7 @@ func (e *Executor) getHeapFile(tableName string) (*storage.HeapFile, error) {
 	if heap, ok := e.heapFiles[tableName]; ok {
 		return heap, nil
 	}
-	return nil, fmt.Errorf("no storage for table '%s'", tableName)
+	return nil, fmt.Errorf("no storage for table '%s' — was it created?", tableName)
 }
 
 func (e *Executor) CloseAll() {

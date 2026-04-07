@@ -1,14 +1,14 @@
 package server
 
 import (
-	"dbengine/catalog"
-	"dbengine/execution"
-	sqlpkg "dbengine/sql"
-	"dbengine/wal"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
+	"dbengine/catalog"
+	"dbengine/execution"
+	"dbengine/wal"
+	sqlpkg "dbengine/sql"
 )
 
 type dbContext struct {
@@ -41,11 +41,15 @@ func (s *Server) currentContext() *dbContext {
 
 func (s *Server) Start(port string) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/query", s.handleQuery)
-	mux.HandleFunc("/api/wal", s.handleWAL)
-	mux.HandleFunc("/api/tables", s.handleTables)
+	mux.HandleFunc("/api/query",     s.handleQuery)
+	mux.HandleFunc("/api/wal",       s.handleWAL)
+	mux.HandleFunc("/api/tables",    s.handleTables)
 	mux.HandleFunc("/api/databases", s.handleDatabases)
-	mux.HandleFunc("/api/use", s.handleUse)
+	mux.HandleFunc("/api/use",       s.handleUse)
+	mux.HandleFunc("/api/schema",    s.handleSchema)
+	mux.HandleFunc("/api/indexes",   s.handleIndexes)
+	mux.HandleFunc("/api/metrics",   s.handleMetrics)
+
 	fmt.Printf("🌐 Web UI running at http://localhost%s\n", port)
 	return http.ListenAndServe(port, corsMiddleware(mux))
 }
@@ -81,7 +85,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// handle USE DATABASE
+	// handle USE DATABASE — switch context
 	if useStmt, ok := stmt.(*sqlpkg.UseDBStatement); ok {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -94,7 +98,22 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// handle CREATE DATABASE — create executor context immediately
+	// handle SHOW DATABASES at server level — knows ALL databases
+	if _, ok := stmt.(*sqlpkg.ShowDBStatement); ok {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		var rows []map[string]string
+		for name := range s.databases {
+			rows = append(rows, map[string]string{"Database": name})
+		}
+		writeJSON(w, QueryResponse{
+			Columns: []string{"Database"},
+			Rows:    rows,
+		})
+		return
+	}
+
+	// handle CREATE DATABASE — register new context immediately
 	if createStmt, ok := stmt.(*sqlpkg.CreateDBStatement); ok {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -112,24 +131,6 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// handle SHOW DATABASES at server level — knows ALL databases
-	if _, ok := stmt.(*sqlpkg.ShowDBStatement); ok {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		type row struct {
-			Database string `json:"Database"`
-		}
-		var rows []map[string]string
-		for name := range s.databases {
-			rows = append(rows, map[string]string{"Database": name})
-		}
-		writeJSON(w, QueryResponse{
-			Columns: []string{"Database"},
-			Rows:    rows,
-		})
-		return
-	}
-
 	s.mu.Lock()
 	ctx := s.currentContext()
 	s.mu.Unlock()
@@ -141,6 +142,15 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, QueryResponse{Error: fmt.Sprintf("Error: %s", err)})
 		return
 	}
+
+	// log operation to WAL
+	switch sv := stmt.(type) {
+	case *sqlpkg.InsertStatement:
+		s.wal.LogInsert(txID, sv.TableName, nil)
+	case *sqlpkg.DeleteStatement:
+		s.wal.LogDelete(txID, sv.TableName, nil)
+	}
+
 	s.wal.Commit(txID)
 
 	var rows []map[string]string
@@ -192,10 +202,8 @@ func (s *Server) handleTables(w http.ResponseWriter, r *http.Request) {
 			}
 			constraint := ""
 			switch c.Constraint {
-			case 1:
-				constraint = "PRIMARY KEY"
-			case 2:
-				constraint = "UNIQUE"
+			case 1: constraint = "PRIMARY KEY"
+			case 2: constraint = "UNIQUE"
 			}
 			cols = append(cols, colInfo{Name: c.Name, DataType: dt, Constraint: constraint})
 		}
@@ -228,16 +236,100 @@ func (s *Server) handleUse(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	if _, exists := s.databases[req.Name]; !exists {
 		writeJSON(w, map[string]string{"error": fmt.Sprintf("database '%s' not found", req.Name)})
 		return
 	}
 	s.currentDB = req.Name
 	writeJSON(w, map[string]string{"message": fmt.Sprintf("Switched to '%s'", req.Name)})
+}
+
+// ── /api/schema ───────────────────────────────────────────────
+
+func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	ctx := s.currentContext()
+	s.mu.Unlock()
+
+	type fkInfo struct {
+		RefTable  string `json:"ref_table"`
+		RefColumn string `json:"ref_column"`
+	}
+	type colInfo struct {
+		Name       string  `json:"name"`
+		DataType   string  `json:"type"`
+		Constraint string  `json:"constraint"`
+		FK         *fkInfo `json:"fk,omitempty"`
+	}
+	type tableInfo struct {
+		Name    string    `json:"name"`
+		Columns []colInfo `json:"columns"`
+	}
+
+	var tables []tableInfo
+	for _, t := range ctx.catalog.GetAllTables() {
+		var cols []colInfo
+		for _, c := range t.Columns {
+			dt := "TEXT"
+			if c.DataType == 0 {
+				dt = "INT"
+			}
+			constraint := ""
+			switch c.Constraint {
+			case 1: constraint = "PRIMARY KEY"
+			case 2: constraint = "UNIQUE"
+			}
+			col := colInfo{Name: c.Name, DataType: dt, Constraint: constraint}
+			if c.ForeignKey != nil {
+				col.FK = &fkInfo{
+					RefTable:  c.ForeignKey.RefTable,
+					RefColumn: c.ForeignKey.RefColumn,
+				}
+			}
+			cols = append(cols, col)
+		}
+		tables = append(tables, tableInfo{Name: t.TableName, Columns: cols})
+	}
+	writeJSON(w, tables)
+}
+
+// ── /api/indexes ──────────────────────────────────────────────
+
+func (s *Server) handleIndexes(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	ctx := s.currentContext()
+	s.mu.Unlock()
+	writeJSON(w, ctx.catalog.GetAllIndexes())
+}
+
+// ── /api/metrics ──────────────────────────────────────────────
+
+type Metrics struct {
+	TotalTables   int    `json:"total_tables"`
+	TotalIndexes  int    `json:"total_indexes"`
+	TotalDatabases int   `json:"total_databases"`
+	CurrentDB     string `json:"current_db"`
+	WALSize       int    `json:"wal_size"`
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	ctx := s.currentContext()
+	currentDB := s.currentDB
+	totalDBs := len(s.databases)
+	s.mu.Unlock()
+
+	records, _ := s.wal.ReadAll()
+
+	writeJSON(w, Metrics{
+		TotalTables:    len(ctx.catalog.GetAllTables()),
+		TotalIndexes:   len(ctx.catalog.GetAllIndexes()),
+		TotalDatabases: totalDBs,
+		CurrentDB:      currentDB,
+		WALSize:        len(records),
+	})
 }
 
 // ── /api/wal ──────────────────────────────────────────────────
@@ -255,18 +347,18 @@ func (s *Server) handleWAL(w http.ResponseWriter, r *http.Request) {
 	for _, rec := range records {
 		typeName := ""
 		switch rec.Type {
-		case 0:
-			typeName = "BEGIN"
-		case 1:
-			typeName = "INSERT"
-		case 2:
-			typeName = "DELETE"
-		case 3:
-			typeName = "COMMIT"
-		case 4:
-			typeName = "ABORT"
+		case 0: typeName = "BEGIN"
+		case 1: typeName = "INSERT"
+		case 2: typeName = "DELETE"
+		case 3: typeName = "COMMIT"
+		case 4: typeName = "ABORT"
 		}
-		entries = append(entries, WALEntry{LSN: rec.LSN, TxID: rec.TxID, Type: typeName, Table: rec.TableName})
+		entries = append(entries, WALEntry{
+			LSN:   rec.LSN,
+			TxID:  rec.TxID,
+			Type:  typeName,
+			Table: rec.TableName,
+		})
 	}
 	writeJSON(w, entries)
 }

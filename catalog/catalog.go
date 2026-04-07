@@ -21,10 +21,16 @@ const (
 	CONSTRAINT_UNIQUE
 )
 
+type ForeignKey struct {
+	RefTable  string `json:"ref_table"`
+	RefColumn string `json:"ref_column"`
+}
+
 type Column struct {
 	Name       string
 	DataType   DataType
 	Constraint ColumnConstraint
+	ForeignKey *ForeignKey
 }
 
 type TableSchema struct {
@@ -41,10 +47,19 @@ func (s *TableSchema) GetColumnIndex(name string) (int, error) {
 	return -1, fmt.Errorf("column '%s' not found in table '%s'", name, s.TableName)
 }
 
-// Catalog stores schemas + supports multiple databases
+// IndexInfo stores metadata about a B+ tree index
+type IndexInfo struct {
+	Name      string `json:"name"`
+	TableName string `json:"table_name"`
+	Column    string `json:"column"`
+	Unique    bool   `json:"unique"`
+}
+
+// Catalog stores all schemas, databases, and indexes
 type Catalog struct {
 	tables    map[string]*TableSchema
 	databases map[string]bool
+	indexes   map[string]*IndexInfo
 	filepath  string
 }
 
@@ -53,6 +68,7 @@ type Catalog struct {
 type catalogDisk struct {
 	Tables    []tableDisk `json:"tables"`
 	Databases []string    `json:"databases"`
+	Indexes   []IndexInfo `json:"indexes"`
 }
 
 type tableDisk struct {
@@ -61,19 +77,22 @@ type tableDisk struct {
 }
 
 type columnDisk struct {
-	Name       string `json:"name"`
-	DataType   int    `json:"data_type"`
-	Constraint int    `json:"constraint"`
+	Name       string      `json:"name"`
+	DataType   int         `json:"data_type"`
+	Constraint int         `json:"constraint"`
+	ForeignKey *ForeignKey `json:"foreign_key,omitempty"`
 }
 
 func NewCatalog(filepath string) *Catalog {
 	return &Catalog{
 		tables:    make(map[string]*TableSchema),
 		databases: map[string]bool{"default": true},
+		indexes:   make(map[string]*IndexInfo),
 		filepath:  filepath,
 	}
 }
 
+// Load reads catalog from disk on startup
 func (c *Catalog) Load() error {
 	data, err := os.ReadFile(c.filepath)
 	if os.IsNotExist(err) {
@@ -82,10 +101,12 @@ func (c *Catalog) Load() error {
 	if err != nil {
 		return fmt.Errorf("failed to read catalog: %w", err)
 	}
+
 	var disk catalogDisk
 	if err := json.Unmarshal(data, &disk); err != nil {
-		return err
+		return fmt.Errorf("failed to parse catalog: %w", err)
 	}
+
 	for _, t := range disk.Tables {
 		var cols []Column
 		for _, c := range t.Columns {
@@ -93,19 +114,32 @@ func (c *Catalog) Load() error {
 				Name:       c.Name,
 				DataType:   DataType(c.DataType),
 				Constraint: ColumnConstraint(c.Constraint),
+				ForeignKey: c.ForeignKey,
 			})
 		}
-		c.tables[t.TableName] = &TableSchema{TableName: t.TableName, Columns: cols}
+		c.tables[t.TableName] = &TableSchema{
+			TableName: t.TableName,
+			Columns:   cols,
+		}
 	}
+
 	for _, db := range disk.Databases {
 		c.databases[db] = true
 	}
-	fmt.Printf("📂 Loaded %d table(s) from catalog\n", len(c.tables))
+
+	for _, idx := range disk.Indexes {
+		idxCopy := idx
+		c.indexes[idx.Name] = &idxCopy
+	}
+
+	fmt.Printf("📂 Loaded %d table(s), %d index(es) from catalog\n", len(c.tables), len(c.indexes))
 	return nil
 }
 
+// Save writes catalog to disk
 func (c *Catalog) Save() error {
 	var disk catalogDisk
+
 	for _, schema := range c.tables {
 		var cols []columnDisk
 		for _, col := range schema.Columns {
@@ -113,19 +147,31 @@ func (c *Catalog) Save() error {
 				Name:       col.Name,
 				DataType:   int(col.DataType),
 				Constraint: int(col.Constraint),
+				ForeignKey: col.ForeignKey,
 			})
 		}
-		disk.Tables = append(disk.Tables, tableDisk{TableName: schema.TableName, Columns: cols})
+		disk.Tables = append(disk.Tables, tableDisk{
+			TableName: schema.TableName,
+			Columns:   cols,
+		})
 	}
+
 	for db := range c.databases {
 		disk.Databases = append(disk.Databases, db)
 	}
+
+	for _, idx := range c.indexes {
+		disk.Indexes = append(disk.Indexes, *idx)
+	}
+
 	data, err := json.MarshalIndent(disk, "", "  ")
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(c.filepath, data, 0644)
 }
+
+// ── Tables ────────────────────────────────────────────────────
 
 func (c *Catalog) CreateTable(schema *TableSchema) error {
 	if _, exists := c.tables[schema.TableName]; exists {
@@ -156,6 +202,8 @@ func (c *Catalog) GetAllTables() []*TableSchema {
 	return tables
 }
 
+// ── Databases ─────────────────────────────────────────────────
+
 func (c *Catalog) CreateDatabase(name string) error {
 	if c.databases[name] {
 		return fmt.Errorf("database '%s' already exists", name)
@@ -170,4 +218,28 @@ func (c *Catalog) GetAllDatabases() []string {
 		dbs = append(dbs, db)
 	}
 	return dbs
+}
+
+// ── Indexes ───────────────────────────────────────────────────
+
+func (c *Catalog) AddIndex(info IndexInfo) {
+	c.indexes[info.Name] = &info
+	c.Save()
+}
+
+func (c *Catalog) DropIndex(name string) {
+	delete(c.indexes, name)
+	c.Save()
+}
+
+func (c *Catalog) GetIndex(name string) *IndexInfo {
+	return c.indexes[name]
+}
+
+func (c *Catalog) GetAllIndexes() []*IndexInfo {
+	var result []*IndexInfo
+	for _, idx := range c.indexes {
+		result = append(result, idx)
+	}
+	return result
 }
