@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<title>DB Engine v3.0</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+/* ── THEME VARIABLES ─────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg:#080a0d;--surface:#0e1117;--surface2:#141820;--surface3:#1a1f2e;
+  --border:#1e2535;--border2:#2a3248;
+  --accent:#00e5c3;--accent-dim:rgba(0,229,195,.08);--accent-border:rgba(0,229,195,.25);
+  --blue:#4d9fff;--blue-dim:rgba(77,159,255,.08);
+  --orange:#ff7b35;--purple:#a78bfa;
+  --text:#dde3ef;--text2:#7a8499;--text3:#3d4560;
+  --success:#00e5c3;--error:#ff4d72;--warn:#ffb83f;--num-color:#a8d8a8;
+  --card-shadow:0 4px 24px rgba(0,0,0,.4);
+}
+[data-theme="light"] {
+  --bg:#f0f2f5;--surface:#ffffff;--surface2:#f7f8fa;--surface3:#eef0f4;
+  --border:#e1e4ea;--border2:#d0d5df;
+  --accent:#00b89a;--accent-dim:rgba(0,184,154,.08);--accent-border:rgba(0,184,154,.3);
+  --blue:#2878d6;--blue-dim:rgba(40,120,214,.08);
+  --orange:#e05a00;--purple:#7c3aed;
+  --text:#1a1d24;--text2:#5a6172;--text3:#9ba3b4;
+  --success:#00b89a;--error:#d63045;--warn:#c07a00;--num-color:#2d7a2d;
+  --card-shadow:0 2px 12px rgba(0,0,0,.08);
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:13px;transition:background .2s,color .2s}
+
+/* AUTH SCREEN */
+.auth-screen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999;flex-direction:column;gap:0}
+.auth-screen.hidden{display:none}
+.auth-box{background:var(--surface);border:1px solid var(--border2);border-radius:16px;padding:40px;width:380px;box-shadow:var(--card-shadow);animation:slideUp .3s ease}
+.auth-logo{display:flex;align-items:center;gap:12px;margin-bottom:32px;justify-content:center}
+.auth-logo-mark{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,#00e5c3,#4d9fff);display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 0 24px rgba(0,229,195,.3)}
+.auth-logo-text{font-family:'Syne',sans-serif;font-weight:800;font-size:22px}
+.auth-subtitle{font-size:11px;color:var(--text3);text-align:center;margin-bottom:28px}
+.auth-field{margin-bottom:16px}
+.auth-label{display:block;font-size:11px;color:var(--text2);margin-bottom:7px;letter-spacing:.05em}
+.auth-input{width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;outline:none;transition:border-color .15s}
+.auth-input:focus{border-color:var(--accent)}
+.auth-btn{width:100%;padding:11px;border-radius:8px;background:linear-gradient(135deg,var(--accent),#00b8a0);border:none;color:#000;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;cursor:pointer;margin-top:8px;transition:all .15s}
+.auth-btn:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(0,229,195,.35)}
+.auth-error{font-size:11px;color:var(--error);text-align:center;margin-top:10px;min-height:16px}
+.auth-hint{font-size:10px;color:var(--text3);text-align:center;margin-top:16px}
+
+/* TOPBAR */
+.topbar{height:52px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:10px;flex-shrink:0;z-index:100}
+.logo{display:flex;align-items:center;gap:10px;font-family:'Syne',sans-serif;font-weight:800;font-size:15px;user-select:none}
+.logo-mark{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#00e5c3,#4d9fff);display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 0 20px rgba(0,229,195,.25)}
+.logo-ver{font-size:10px;font-weight:600;color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent-border);padding:2px 7px;border-radius:5px}
+.vsep{width:1px;height:28px;background:var(--border2);margin:0 6px}
+.conn{display:flex;align-items:center;gap:7px;background:var(--surface2);border:1px solid var(--border2);padding:4px 10px;border-radius:6px;font-size:11px;color:var(--text2)}
+.conn-dot{width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 8px var(--success);animation:blink 2.5s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+.db-sel{display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border2);padding:4px 10px;border-radius:6px;font-size:11px}
+.db-sel select{background:transparent;border:none;outline:none;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;appearance:none}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:6px}
+.top-btn{padding:5px 12px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.top-btn:hover,.top-btn.active{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.theme-btn{width:30px;height:30px;border-radius:7px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.theme-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+
+/* LAYOUT */
+.main{display:flex;flex:1;overflow:hidden}
+
+/* SIDEBAR */
+.sidebar{width:230px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-head{padding:12px 14px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.sidebar-title{font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.12em;text-transform:uppercase;flex:1}
+.icon-btn{width:24px;height:24px;border-radius:5px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.icon-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.sidebar-body{flex:1;overflow-y:auto;padding:6px 0}
+.table-head{padding:7px 14px;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text2);transition:background .1s;user-select:none}
+.table-head:hover{background:var(--surface2);color:var(--text)}
+.table-head.active{background:var(--accent-dim);color:var(--accent);border-left:2px solid var(--accent)}
+.t-arrow{font-size:9px;color:var(--text3);transition:transform .2s;margin-left:auto}
+.t-arrow.open{transform:rotate(90deg)}
+.col-list{display:none;background:rgba(0,0,0,.1)}
+.col-list.open{display:block}
+.col-row{padding:4px 14px 4px 36px;font-size:11px;color:var(--text3);display:flex;align-items:center;gap:7px;border-left:1px solid var(--border);margin-left:22px}
+.col-badge{font-size:9px;padding:1px 5px;border-radius:3px;background:var(--blue-dim);color:var(--blue);font-weight:600}
+.pk-badge{font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(255,183,63,.1);color:var(--warn);font-weight:600}
+.uq-badge{font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(167,139,250,.1);color:var(--purple);font-weight:600}
+.tbl-actions{display:flex;gap:6px;padding:6px 14px 8px 36px}
+.no-tables{padding:32px 16px;text-align:center;color:var(--text3);font-size:11px;line-height:2}
+
+/* CONTENT */
+.content{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* TABS */
+.tab-bar{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto;padding:0 8px;gap:2px;min-height:40px}
+.tab-bar::-webkit-scrollbar{height:0}
+.q-tab{display:flex;align-items:center;gap:7px;padding:6px 14px;border-radius:6px 6px 0 0;background:transparent;border:1px solid transparent;border-bottom:none;color:var(--text2);font-size:11px;cursor:pointer;white-space:nowrap;transition:all .15s;font-family:'JetBrains Mono',monospace;min-width:90px;position:relative;top:1px}
+.q-tab:hover{background:var(--surface2);color:var(--text)}
+.q-tab.active{background:var(--bg);border-color:var(--border);color:var(--accent);border-bottom-color:var(--bg)}
+.tab-x{width:14px;height:14px;border-radius:3px;background:transparent;border:none;color:var(--text3);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;line-height:1}
+.tab-x:hover{background:var(--error);color:#fff}
+.new-tab{width:26px;height:26px;border-radius:5px;background:transparent;border:1px dashed var(--border2);color:var(--text3);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-left:4px;transition:all .15s;flex-shrink:0}
+.new-tab:hover{border-color:var(--accent);color:var(--accent)}
+
+/* EDITOR */
+.editor-panel{background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0}
+.editor-toolbar{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border)}
+.editor-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;font-weight:600}
+.run-btn{margin-left:auto;padding:5px 18px;border-radius:6px;background:linear-gradient(135deg,var(--accent),#00b8a0);border:none;color:#000;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s}
+.run-btn:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,229,195,.3)}
+.sm-btn{padding:5px 11px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;transition:all .15s}
+.sm-btn:hover{border-color:var(--blue);color:var(--blue)}
+.sm-btn.danger:hover{border-color:var(--error);color:var(--error)}
+.spinner{width:14px;height:14px;border:2px solid rgba(0,229,195,.15);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;display:none}
+.spinner.on{display:block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sql-input{width:100%;min-height:100px;max-height:220px;background:transparent;border:none;outline:none;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.75;padding:12px 16px;resize:vertical;caret-color:var(--accent)}
+.sql-input::placeholder{color:var(--text3);font-style:italic}
+.editor-hint{padding:4px 16px 6px;font-size:10px;color:var(--text3);border-top:1px solid var(--border)}
+.quick-bar{display:flex;gap:6px;padding:6px 12px 8px;flex-wrap:wrap}
+.q-chip{padding:3px 10px;border-radius:20px;background:var(--surface3);border:1px solid var(--border2);color:var(--text2);font-size:10px;cursor:pointer;transition:all .15s;white-space:nowrap;font-family:'JetBrains Mono',monospace}
+.q-chip:hover{border-color:var(--blue);color:var(--blue);background:var(--blue-dim)}
+
+/* RESULTS */
+.results-panel{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.results-bar{display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0}
+.results-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;font-weight:600}
+.row-badge{font-size:10px;color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent-border);padding:2px 8px;border-radius:20px;font-weight:600}
+.time-badge{font-size:10px;color:var(--text3);margin-left:auto}
+.slow-badge{font-size:10px;color:var(--warn);background:rgba(255,183,63,.1);border:1px solid rgba(255,183,63,.3);padding:2px 8px;border-radius:20px}
+.export-btn{padding:3px 10px;border-radius:5px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:10px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .15s}
+.export-btn:hover{border-color:var(--accent);color:var(--accent)}
+.results-body{flex:1;overflow:auto;display:flex;flex-direction:column}
+
+/* MULTI-RESULT blocks */
+.multi-result-block{border-bottom:2px solid var(--border2)}
+.multi-result-header{display:flex;align-items:center;gap:10px;padding:6px 14px;background:var(--surface2);font-size:11px;border-bottom:1px solid var(--border)}
+.multi-result-sql{color:var(--text2);font-style:italic;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.multi-result-ms{color:var(--text3);font-size:10px}
+.multi-slow{color:var(--warn)}
+
+/* DATA TABLE */
+.data-table{width:100%;border-collapse:collapse;font-size:12px}
+.data-table th{background:var(--surface2);color:var(--text2);font-weight:600;padding:8px 16px;text-align:left;border-bottom:1px solid var(--border);border-right:1px solid var(--border);position:sticky;top:0;white-space:nowrap;font-size:10px;letter-spacing:.06em;text-transform:uppercase}
+.data-table th:last-child{border-right:none}
+.data-table th.num-h{color:var(--text3);text-align:right;min-width:44px}
+.data-table td{padding:7px 16px;border-bottom:1px solid rgba(127,127,127,.07);border-right:1px solid rgba(127,127,127,.07);white-space:nowrap;vertical-align:middle;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+.data-table td:last-child{border-right:none}
+.data-table tr:hover td{background:rgba(127,127,127,.04)}
+.data-table td.num-c{color:var(--text3);text-align:right;font-size:11px}
+.data-table td.int-v{color:var(--num-color)}
+.data-table td.null-v{color:var(--text3);font-style:italic}
+.data-table td.editable:hover{background:rgba(0,229,195,.05)!important;cursor:text;outline:1px solid var(--accent-border);outline-offset:-1px}
+.data-table td.editing{padding:0;outline:2px solid var(--accent);outline-offset:-2px;background:rgba(0,229,195,.07)!important}
+.cell-input{width:100%;height:100%;background:transparent;border:none;outline:none;color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:12px;padding:7px 16px}
+
+/* PAGINATION */
+.pagination{display:flex;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0;font-size:11px;color:var(--text2)}
+.page-btn{padding:3px 10px;border-radius:5px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;transition:all .15s}
+.page-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.page-btn:disabled{opacity:.3;cursor:default}
+.page-size-sel{padding:3px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:10px;margin-left:auto;cursor:pointer}
+
+/* STATES */
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:14px;color:var(--text3)}
+.empty-icon{font-size:40px;opacity:.25}
+.empty-text{font-size:12px}
+.msg-box{margin:16px;padding:13px 18px;border-radius:8px;font-size:12px;display:flex;align-items:center;gap:10px;animation:fadeUp .2s ease}
+.msg-box.ok{background:rgba(0,229,195,.06);border:1px solid rgba(0,229,195,.2);color:var(--success)}
+.msg-box.err{background:rgba(255,77,114,.06);border:1px solid rgba(255,77,114,.2);color:var(--error)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+
+/* MODALS */
+.overlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center}
+.overlay.open{display:flex;animation:fadeIn .15s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal{background:var(--surface);border:1px solid var(--border2);border-radius:14px;width:580px;max-width:94vw;max-height:88vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,.5);animation:slideUp .2s ease}
+.modal-wide{width:660px}
+.modal-head{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.modal-title{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;flex:1}
+.modal-close{width:28px;height:28px;border-radius:6px;background:transparent;border:1px solid var(--border2);color:var(--text2);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.modal-close:hover{background:var(--error);border-color:var(--error);color:#fff}
+.modal-body{padding:20px 24px}
+.modal-foot{padding:16px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
+
+/* FORM */
+.form-group{margin-bottom:18px}
+.form-label{display:block;font-size:11px;color:var(--text2);margin-bottom:7px;letter-spacing:.05em}
+.form-input{width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:7px;padding:9px 12px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;transition:border-color .15s}
+.form-input:focus{border-color:var(--accent)}
+.form-select{width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:7px;padding:9px 12px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none;cursor:pointer;appearance:none;transition:border-color .15s}
+.form-select:focus{border-color:var(--accent)}
+
+/* COLUMN BUILDER */
+.cb-head{display:grid;grid-template-columns:1fr 90px 70px 70px 28px;gap:8px;margin-bottom:6px}
+.cb-head span{font-size:10px;color:var(--text3);letter-spacing:.06em}
+.cb-row{display:grid;grid-template-columns:1fr 90px 70px 70px 28px;gap:8px;align-items:center;margin-bottom:8px}
+.check-c{display:flex;align-items:center;justify-content:center}
+input[type=checkbox]{accent-color:var(--accent);cursor:pointer;width:14px;height:14px}
+.add-col-btn{padding:8px;border-radius:6px;width:100%;border:1px dashed var(--border2);background:transparent;color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;transition:all .15s;margin-top:4px}
+.add-col-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.del-btn{width:26px;height:26px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text3);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.del-btn:hover{background:var(--error);border-color:var(--error);color:#fff}
+.sql-preview{margin-top:12px;padding:10px 14px;background:var(--surface2);border-radius:6px;font-size:11px;color:var(--text2);display:none;word-break:break-all;border:1px solid var(--border)}
+
+/* BUTTONS */
+.btn{padding:8px 20px;border-radius:7px;font-family:'JetBrains Mono',monospace;font-size:12px;cursor:pointer;transition:all .15s}
+.btn-ghost{background:transparent;border:1px solid var(--border2);color:var(--text2)}
+.btn-ghost:hover{border-color:var(--text2);color:var(--text)}
+.btn-primary{background:linear-gradient(135deg,var(--accent),#00b8a0);border:none;color:#000;font-weight:700}
+.btn-primary:hover{box-shadow:0 4px 16px rgba(0,229,195,.3);transform:translateY(-1px)}
+
+/* METRICS PANEL */
+.metrics-panel{position:fixed;inset:52px 0 0 230px;z-index:300;background:var(--bg);display:none;flex-direction:column;overflow:auto}
+.metrics-panel.open{display:flex;animation:fadeIn .15s ease}
+.metrics-bar{padding:12px 20px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;gap:10px;flex-shrink:0}
+.metrics-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;padding:24px}
+.metric-card{background:var(--surface);border:1px solid var(--border2);border-radius:12px;padding:20px;transition:transform .2s}
+.metric-card:hover{transform:translateY(-2px)}
+.metric-icon{font-size:28px;margin-bottom:12px}
+.metric-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;font-weight:600;margin-bottom:6px}
+.metric-value{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--accent)}
+.metric-sub{font-size:10px;color:var(--text3);margin-top:4px}
+.metric-warn .metric-value{color:var(--warn)}
+.metric-blue .metric-value{color:var(--blue)}
+.metric-purple .metric-value{color:var(--purple)}
+
+/* SLOW QUERY PANEL */
+.slow-panel{position:fixed;right:0;top:52px;bottom:0;width:420px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:200;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1)}
+.slow-panel.open{transform:none}
+.slow-head{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.slow-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;flex:1}
+.slow-clear{font-size:10px;color:var(--error);background:transparent;border:none;cursor:pointer;font-family:'JetBrains Mono',monospace}
+.slow-close{background:transparent;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1}
+.slow-list{flex:1;overflow-y:auto;padding:8px 0}
+.slow-item{padding:12px 16px;border-bottom:1px solid rgba(127,127,127,.07)}
+.slow-ms{font-size:12px;color:var(--warn);font-weight:600;margin-bottom:4px}
+.slow-sql{font-size:11px;color:var(--text2);line-height:1.6;word-break:break-word}
+.slow-time{font-size:10px;color:var(--text3);margin-top:4px}
+.slow-empty{padding:32px 16px;text-align:center;color:var(--text3);font-size:11px}
+
+/* HISTORY PANEL */
+.hist-panel{position:fixed;right:0;top:52px;bottom:0;width:320px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:201;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1)}
+.hist-panel.open{transform:none}
+.hist-head{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.hist-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;flex:1}
+.hist-clear{font-size:10px;color:var(--error);background:transparent;border:none;cursor:pointer;font-family:'JetBrains Mono',monospace}
+.hist-close{background:transparent;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1}
+.hist-list{flex:1;overflow-y:auto;padding:6px 0}
+.hist-item{padding:10px 16px;cursor:pointer;border-bottom:1px solid rgba(127,127,127,.07);transition:background .1s}
+.hist-item:hover{background:var(--surface2)}
+.hist-sql{font-size:11px;color:var(--text2);line-height:1.6;word-break:break-word}
+.hist-meta{font-size:10px;color:var(--text3);margin-top:4px}
+.hist-empty{padding:32px 16px;text-align:center;color:var(--text3);font-size:11px}
+
+/* WAL */
+.wal-view{display:none;flex-direction:column;flex:1;overflow:hidden}
+.wal-view.active{display:flex}
+.wal-bar{padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:var(--surface);flex-shrink:0}
+.wal-ref{padding:3px 10px;border-radius:5px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-size:10px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .15s}
+.wal-ref:hover{border-color:var(--blue);color:var(--blue)}
+.wal-list{flex:1;overflow-y:auto}
+.wal-row{display:flex;align-items:center;gap:14px;padding:6px 16px;border-bottom:1px solid rgba(127,127,127,.04);font-size:11px}
+.wal-row:hover{background:rgba(127,127,127,.03)}
+.wal-lsn{color:var(--text3);min-width:64px}
+.wal-txid{color:var(--blue);min-width:56px}
+.wal-type{min-width:68px;text-align:center;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px}
+.wal-type.BEGIN{background:rgba(86,156,214,.12);color:#569cd6}
+.wal-type.COMMIT{background:rgba(0,229,195,.1);color:var(--accent)}
+.wal-type.ABORT{background:rgba(255,77,114,.1);color:var(--error)}
+.wal-type.INSERT{background:rgba(168,216,168,.1);color:var(--num-color)}
+.wal-type.DELETE{background:rgba(255,123,53,.1);color:var(--orange)}
+.wal-tbl{color:var(--text2)}
+
+/* ER DIAGRAM */
+.er-panel{position:fixed;inset:52px 0 0 230px;z-index:300;background:var(--bg);display:none;flex-direction:column;overflow:hidden}
+.er-panel.open{display:flex;animation:fadeIn .15s ease}
+.er-bar{padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;gap:10px;flex-shrink:0}
+.er-canvas{flex:1;overflow:auto;padding:32px;display:flex;flex-wrap:wrap;gap:24px;align-content:flex-start}
+.er-table{background:var(--surface);border:1px solid var(--border2);border-radius:10px;min-width:190px;overflow:hidden;box-shadow:var(--card-shadow);transition:transform .2s}
+.er-table:hover{transform:translateY(-2px)}
+.er-table-head{padding:10px 14px;background:linear-gradient(135deg,rgba(0,229,195,.1),rgba(77,159,255,.1));border-bottom:1px solid var(--border2);font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--accent);display:flex;align-items:center;gap:8px}
+.er-col{padding:6px 14px;font-size:11px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(127,127,127,.06);color:var(--text2)}
+.er-col:last-child{border-bottom:none}
+.er-col-name{flex:1}
+.er-fk-ref{font-size:10px;color:var(--orange)}
+.fk-panel{margin-top:24px;width:100%;background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:16px}
+.fk-title{font-size:11px;color:var(--text2);font-weight:600;margin-bottom:12px;letter-spacing:.06em;text-transform:uppercase}
+.fk-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid rgba(127,127,127,.06);font-size:11px}
+.fk-row:last-child{border-bottom:none}
+
+/* INDEX MANAGER */
+.idx-panel{position:fixed;right:0;top:52px;bottom:0;width:360px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:200;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1)}
+.idx-panel.open{transform:none}
+.idx-head{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.idx-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;flex:1}
+.idx-close{background:transparent;border:none;color:var(--text2);font-size:20px;cursor:pointer;line-height:1}
+.idx-body{flex:1;overflow-y:auto;padding:16px}
+.idx-card{background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px}
+.idx-info{flex:1}
+.idx-name{font-size:12px;color:var(--accent);font-weight:600}
+.idx-detail{font-size:10px;color:var(--text3);margin-top:3px}
+.idx-drop{padding:3px 8px;border-radius:4px;border:1px solid rgba(255,77,114,.3);background:transparent;color:var(--error);font-size:10px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .15s}
+.idx-drop:hover{background:var(--error);color:#fff}
+.idx-create{margin-top:16px;padding-top:16px;border-top:1px solid var(--border)}
+.idx-create-title{font-size:11px;color:var(--text2);margin-bottom:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.idx-row{display:flex;gap:8px;margin-bottom:8px}
+.create-idx-btn{width:100%;padding:8px;border-radius:6px;background:var(--accent-dim);border:1px solid var(--accent-border);color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;transition:all .15s;margin-top:4px}
+.create-idx-btn:hover{background:rgba(0,229,195,.15)}
+
+/* CSV */
+.drop-zone{border:2px dashed var(--border2);border-radius:10px;padding:36px;text-align:center;cursor:pointer;transition:all .2s;color:var(--text3)}
+.drop-zone:hover,.drop-zone.drag{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.drop-icon{font-size:36px;margin-bottom:12px;opacity:.5}
+.drop-text{font-size:12px;line-height:2}
+.drop-sub{font-size:11px;color:var(--text3);margin-top:6px}
+.csv-prev-title{font-size:11px;color:var(--text2);margin:14px 0 8px}
+.csv-tbl-wrap{overflow-x:auto;border-radius:6px;border:1px solid var(--border)}
+.csv-tbl{width:100%;border-collapse:collapse;font-size:11px}
+.csv-tbl th{background:var(--surface3);padding:6px 10px;color:var(--text2);border-bottom:1px solid var(--border);text-align:left}
+.csv-tbl td{padding:5px 10px;border-bottom:1px solid rgba(127,127,127,.06);color:var(--text)}
+.csv-tbl tr:last-child td{border-bottom:none}
+
+/* TOAST */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:12px 18px;font-size:12px;color:var(--text);box-shadow:0 8px 32px rgba(0,0,0,.3);z-index:9999;transition:all .3s;transform:translateY(8px);opacity:0;max-width:340px}
+.toast.show{transform:none;opacity:1}
+.toast.ok{border-color:var(--accent-border)}
+.toast.err{border-color:rgba(255,77,114,.3)}
+
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--text3)}
+</style>
+</head>
+<body>
+
+<!-- AUTH SCREEN -->
+<div class="auth-screen" id="authScreen">
+  <div class="auth-box">
+    <div class="auth-logo">
+      <div class="auth-logo-mark">🗄</div>
+      <span class="auth-logo-text">DB ENGINE</span>
+    </div>
+    <div class="auth-subtitle">Sign in to access your database</div>
+    <div class="auth-field">
+      <label class="auth-label">USERNAME</label>
+      <input class="auth-input" id="authUser" placeholder="admin" type="text" onkeydown="if(event.key==='Enter')doAuth()">
+    </div>
+    <div class="auth-field">
+      <label class="auth-label">PASSWORD</label>
+      <input class="auth-input" id="authPass" placeholder="••••••••" type="password" onkeydown="if(event.key==='Enter')doAuth()">
+    </div>
+    <button class="auth-btn" onclick="doAuth()">Sign In</button>
+    <div class="auth-error" id="authError"></div>
+    <div class="auth-hint">Default: admin / dbengine123</div>
+  </div>
+</div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="logo"><div class="logo-mark">🗄</div><span>DB ENGINE</span><span class="logo-ver">v3.0</span></div>
+  <div class="vsep"></div>
+  <div class="conn"><div class="conn-dot" id="connDot"></div><span id="connText">Connecting...</span></div>
+  <div class="vsep"></div>
+  <div class="db-sel">🗂 <select id="dbSelect" onchange="switchDB(this.value)"></select> ▾</div>
+  <div class="topbar-right">
+    <button class="top-btn" onclick="openDesigner()">＋ Table</button>
+    <button class="top-btn" onclick="openCSV()">⬆ CSV</button>
+    <button class="top-btn" id="metricsToggle" onclick="toggleMetrics()">📊 Metrics</button>
+    <button class="top-btn" id="slowToggle" onclick="toggleSlow()">🐢 Slow Queries</button>
+    <button class="top-btn" id="erToggle" onclick="toggleER()">ER Diagram</button>
+    <button class="top-btn" id="idxToggle" onclick="toggleIndexes()">⚡ Indexes</button>
+    <button class="top-btn" id="walToggle" onclick="toggleWAL()">WAL</button>
+    <div class="vsep"></div>
+    <button class="theme-btn" onclick="toggleTheme()" title="Toggle theme" id="themeBtn">🌙</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="sidebar">
+    <div class="sidebar-head">
+      <span class="sidebar-title">Tables</span>
+      <button class="icon-btn" onclick="loadTables()">↻</button>
+      <button class="icon-btn" onclick="openDesigner()">+</button>
+    </div>
+    <div class="sidebar-body" id="tableList"><div class="no-tables">No tables yet.</div></div>
+  </div>
+
+  <div class="content">
+    <div class="tab-bar" id="tabBar"><button class="new-tab" onclick="newTab()">+</button></div>
+
+    <div class="editor-panel">
+      <div class="editor-toolbar">
+        <span class="editor-label">SQL Editor</span>
+        <div class="spinner" id="spinner"></div>
+        <button class="sm-btn" onclick="toggleHistory()">⏱ History</button>
+        <button class="sm-btn danger" onclick="clearEditor()">✕ Clear</button>
+        <button class="run-btn" onclick="runQuery()">▶ Run All <small style="opacity:.6;font-size:9px">Ctrl+↵</small></button>
+      </div>
+      <textarea class="sql-input" id="sqlInput"
+        placeholder="-- Write one or multiple SQL statements separated by semicolons&#10;SELECT * FROM users;&#10;SELECT COUNT(*) FROM orders;"
+        onkeydown="handleKey(event)"></textarea>
+      <div class="editor-hint">💡 Multiple statements supported — separate with <strong>;</strong></div>
+      <div class="quick-bar" id="quickBar"></div>
+    </div>
+
+    <div class="results-panel" id="resultsPanel">
+      <div class="results-bar">
+        <span class="results-label">Results</span>
+        <span class="row-badge" id="rowBadge" style="display:none"></span>
+        <span class="slow-badge" id="slowBadge" style="display:none">⚠ Slow query</span>
+        <button class="export-btn" id="exportBtn" style="display:none" onclick="exportCSV()">⬇ CSV</button>
+        <span class="time-badge" id="timeBadge"></span>
+      </div>
+      <div class="results-body" id="resultsBody">
+        <div class="empty-state"><div class="empty-icon">⌨</div><div class="empty-text">Run a query to see results</div></div>
+      </div>
+    </div>
+
+    <div class="wal-view" id="walView">
+      <div class="wal-bar">
+        <span style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;font-weight:600">Write-Ahead Log</span>
+        <button class="wal-ref" onclick="loadWAL()" style="margin-left:auto">↻ Refresh</button>
+      </div>
+      <div class="wal-list" id="walList"><div class="hist-empty">Loading...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- METRICS PANEL -->
+<div class="metrics-panel" id="metricsPanel">
+  <div class="metrics-bar">
+    <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px">📊 Live Metrics</span>
+    <button class="wal-ref" onclick="loadMetrics()">↻ Refresh</button>
+    <button class="wal-ref" onclick="toggleMetrics()" style="margin-left:8px">✕ Close</button>
+  </div>
+  <div class="metrics-grid" id="metricsGrid">
+    <div class="empty-state"><div class="empty-text">Loading metrics...</div></div>
+  </div>
+</div>
+
+<!-- SLOW QUERY PANEL -->
+<div class="slow-panel" id="slowPanel">
+  <div class="slow-head">
+    <span class="slow-title">🐢 Slow Query Log</span>
+    <button class="slow-clear" onclick="clearSlowLog()">Clear</button>
+    <button class="slow-close" onclick="toggleSlow()">×</button>
+  </div>
+  <div class="slow-list" id="slowList"></div>
+</div>
+
+<!-- HISTORY PANEL -->
+<div class="hist-panel" id="histPanel">
+  <div class="hist-head">
+    <span class="hist-title">⏱ Query History</span>
+    <button class="hist-clear" onclick="clearHistory()">Clear all</button>
+    <button class="hist-close" onclick="toggleHistory()">×</button>
+  </div>
+  <div class="hist-list" id="histList"></div>
+</div>
+
+<!-- ER DIAGRAM -->
+<div class="er-panel" id="erPanel">
+  <div class="er-bar">
+    <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px">ER Diagram</span>
+    <span style="font-size:11px;color:var(--text3)" id="erSubtitle"></span>
+    <button class="wal-ref" onclick="loadER()">↻ Refresh</button>
+    <button class="wal-ref" onclick="toggleER()" style="margin-left:8px">✕ Close</button>
+  </div>
+  <div class="er-canvas" id="erCanvas"></div>
+</div>
+
+<!-- INDEX MANAGER -->
+<div class="idx-panel" id="idxPanel">
+  <div class="idx-head"><span class="idx-title">⚡ Index Manager</span><button class="idx-close" onclick="toggleIndexes()">×</button></div>
+  <div class="idx-body">
+    <div id="idxList"></div>
+    <div class="idx-create">
+      <div class="idx-create-title">Create New Index</div>
+      <div class="idx-row"><input class="form-input" id="idxName" placeholder="index name" style="font-size:11px;padding:7px 10px"></div>
+      <div class="idx-row">
+        <select class="form-select" id="idxTable" onchange="populateIdxCols()" style="font-size:11px;padding:7px 10px;flex:1"><option value="">— table —</option></select>
+        <select class="form-select" id="idxCol" style="font-size:11px;padding:7px 10px;flex:1"><option value="">— column —</option></select>
+      </div>
+      <div class="idx-row" style="align-items:center;gap:8px"><input type="checkbox" id="idxUnique"><label style="font-size:11px;color:var(--text2);cursor:pointer" for="idxUnique">UNIQUE index</label></div>
+      <button class="create-idx-btn" onclick="createIndex()">+ Create Index</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: TABLE DESIGNER -->
+<div class="overlay" id="designerModal" onclick="bgClose(event,'designerModal')">
+<div class="modal">
+  <div class="modal-head"><span class="modal-title">✦ Table Designer</span><button class="modal-close" onclick="closeModal('designerModal')">×</button></div>
+  <div class="modal-body">
+    <div class="form-group"><label class="form-label">TABLE NAME</label><input class="form-input" id="dtName" placeholder="e.g. employees" oninput="previewSQL()"></div>
+    <div class="form-group">
+      <label class="form-label">COLUMNS</label>
+      <div class="cb-head"><span>Name</span><span>Type</span><span>Primary Key</span><span>Unique</span><span></span></div>
+      <div id="colBuilder"></div>
+      <button class="add-col-btn" onclick="addCol()">+ Add Column</button>
+    </div>
+    <div class="sql-preview" id="dtSQL"></div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal('designerModal')">Cancel</button><button class="btn btn-primary" onclick="createTable()">Create Table</button></div>
+</div>
+</div>
+
+<!-- MODAL: INSERT ROW -->
+<div class="overlay" id="insertModal" onclick="bgClose(event,'insertModal')">
+<div class="modal">
+  <div class="modal-head"><span class="modal-title" id="insertTitle">Insert Row</span><button class="modal-close" onclick="closeModal('insertModal')">×</button></div>
+  <div class="modal-body"><div id="insertFields"></div></div>
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal('insertModal')">Cancel</button><button class="btn btn-primary" onclick="doInsert()">Insert Row</button></div>
+</div>
+</div>
+
+<!-- MODAL: CSV IMPORT -->
+<div class="overlay" id="csvModal" onclick="bgClose(event,'csvModal')">
+<div class="modal modal-wide">
+  <div class="modal-head"><span class="modal-title">⬆ Import CSV</span><button class="modal-close" onclick="closeModal('csvModal')">×</button></div>
+  <div class="modal-body">
+    <div class="form-group"><label class="form-label">TABLE NAME</label><input class="form-input" id="csvTblName" placeholder="e.g. employees"></div>
+    <div class="drop-zone" id="dropZone" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)" onclick="document.getElementById('csvFile').click()">
+      <div class="drop-icon">📄</div><div class="drop-text">Drop CSV here or click to browse</div>
+      <div class="drop-sub">First row = headers · INT/TEXT auto-detected · decimals → TEXT</div>
+    </div>
+    <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="handleFilePick(event)">
+    <div id="csvPreview"></div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal('csvModal')">Cancel</button><button class="btn btn-primary" onclick="doImportCSV()">Import</button></div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API='http://localhost:8080';
+let tabs=[],activeTab=null,tabN=0;
+let queryHistory=JSON.parse(localStorage.getItem('qh')||'[]');
+let currentResult=null,currentTables=[];
+let csvParsed=null,insertTableName=null;
+let walOpen=false,histOpen=false,erOpen=false,idxOpen=false,metricsOpen=false,slowOpen=false;
+let pageState={data:null,page:1,pageSize:100};
+let authenticated=false;
+let isDark=localStorage.getItem('theme')!=='light';
+
+// ── AUTH ──────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded',()=>{
+  applyTheme();
+  // check if already authed this session
+  if(sessionStorage.getItem('authed')==='1'){
+    authenticate();
+  }
+});
+
+async function doAuth(){
+  const user=document.getElementById('authUser').value.trim();
+  const pass=document.getElementById('authPass').value;
+  document.getElementById('authError').textContent='';
+  try{
+    const r=await fetch(`${API}/api/auth`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass})});
+    const data=await r.json();
+    if(data.ok){authenticate();}
+    else{document.getElementById('authError').textContent=data.message||'Invalid credentials';}
+  }catch{document.getElementById('authError').textContent='Cannot connect to server';}
+}
+
+function authenticate(){
+  authenticated=true;
+  sessionStorage.setItem('authed','1');
+  document.getElementById('authScreen').classList.add('hidden');
+  ping();loadDatabases();loadTables();renderHistory();
+  newTab('Query 1');buildQuickBar();
+  setInterval(ping,9000);
+  setInterval(()=>{if(metricsOpen)loadMetrics();},5000);
+}
+
+// ── THEME ─────────────────────────────────────────────────────
+function toggleTheme(){
+  isDark=!isDark;localStorage.setItem('theme',isDark?'dark':'light');applyTheme();
+}
+function applyTheme(){
+  document.documentElement.setAttribute('data-theme',isDark?'dark':'light');
+  document.getElementById('themeBtn').textContent=isDark?'🌙':'☀️';
+}
+
+// ── CONNECTION ────────────────────────────────────────────────
+async function ping(){
+  try{
+    const r=await fetch(`${API}/api/wal`);
+    const ok=r.ok;
+    document.getElementById('connDot').style.cssText=ok
+      ?'width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 8px var(--success);animation:blink 2.5s infinite'
+      :'width:7px;height:7px;border-radius:50%;background:var(--error)';
+    document.getElementById('connText').textContent=ok?'Connected · localhost:8080':'Disconnected';
+  }catch{
+    document.getElementById('connDot').style.background='var(--error)';
+    document.getElementById('connText').textContent='Not connected';
+  }
+}
+
+// ── DATABASES ─────────────────────────────────────────────────
+async function loadDatabases(){
+  try{
+    const dbs=await(await fetch(`${API}/api/databases`)).json();
+    const sel=document.getElementById('dbSelect');sel.innerHTML='';
+    (dbs||[]).forEach(d=>{const o=document.createElement('option');o.value=d.name;o.textContent=d.name;if(d.current)o.selected=true;sel.appendChild(o);});
+  }catch{}
+}
+async function switchDB(name){
+  try{await fetch(`${API}/api/use`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});loadTables();toast(`Switched to '${name}'`,'ok');}
+  catch{toast('Switch failed','err');}
+}
+
+// ── SIDEBAR ───────────────────────────────────────────────────
+async function loadTables(){
+  try{currentTables=await(await fetch(`${API}/api/tables`)).json()||[];renderSidebar(currentTables);}
+  catch{document.getElementById('tableList').innerHTML='<div class="no-tables">Cannot reach server</div>';}
+}
+
+function renderSidebar(tables){
+  const el=document.getElementById('tableList');
+  if(!tables?.length){el.innerHTML='<div class="no-tables">No tables yet.<br>Click + to create one.</div>';return;}
+  el.innerHTML=tables.map(t=>`
+    <div>
+      <div class="table-head" id="th-${t.name}" onclick="toggleCols('${t.name}')">
+        <span style="font-size:11px;opacity:.5">⊞</span>
+        <span style="flex:1;font-size:12px">${t.name}</span>
+        <span style="font-size:10px;color:var(--text3)">${t.columns?.length||0}c</span>
+        <span class="t-arrow" id="arr-${t.name}">›</span>
+      </div>
+      <div class="col-list" id="cl-${t.name}">
+        ${(t.columns||[]).map(c=>`<div class="col-row">${c.constraint==='PRIMARY KEY'?'<span class="pk-badge">PK</span>':''}${c.constraint==='UNIQUE'?'<span class="uq-badge">UQ</span>':''}<span style="flex:1">${c.name}</span><span class="col-badge">${c.type}</span></div>`).join('')}
+        <div class="tbl-actions">
+          <button class="q-chip" onclick="quickSelect('${t.name}')">SELECT</button>
+          <button class="q-chip" onclick="openInsert('${t.name}')">INSERT</button>
+          <button class="q-chip" onclick="setSQL(\`EXPLAIN SELECT * FROM ${t.name}\`)">EXPLAIN</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function toggleCols(name){
+  const cl=document.getElementById(`cl-${name}`),arr=document.getElementById(`arr-${name}`),th=document.getElementById(`th-${name}`);
+  const open=cl.classList.toggle('open');arr.classList.toggle('open',open);th.classList.toggle('active',open);
+  if(open)quickSelect(name);
+}
+function quickSelect(name){setSQL(`SELECT * FROM ${name}`);runQuery();}
+
+// ── TABS ──────────────────────────────────────────────────────
+function newTab(name){
+  const id=++tabN;tabs.push({id,name:name||`Query ${id}`,sql:''});setActive(id);renderTabs();
+  document.getElementById('sqlInput').value='';document.getElementById('sqlInput').focus();
+}
+function setActive(id){
+  if(activeTab){const t=tabs.find(t=>t.id===activeTab);if(t)t.sql=document.getElementById('sqlInput').value;}
+  activeTab=id;const t=tabs.find(t=>t.id===id);if(t)document.getElementById('sqlInput').value=t.sql;
+}
+function switchTab(id){setActive(id);renderTabs();}
+function closeTab(id,e){
+  e.stopPropagation();tabs=tabs.filter(t=>t.id!==id);
+  if(activeTab===id){activeTab=tabs.length?tabs[tabs.length-1].id:null;const t=tabs.find(t=>t.id===activeTab);document.getElementById('sqlInput').value=t?.sql||'';}
+  if(!tabs.length)newTab('Query 1');else renderTabs();
+}
+function renderTabs(){
+  const bar=document.getElementById('tabBar'),newBtn=bar.querySelector('.new-tab');
+  bar.querySelectorAll('.q-tab').forEach(e=>e.remove());
+  tabs.forEach(t=>{
+    const d=document.createElement('div');d.className='q-tab'+(t.id===activeTab?' active':'');
+    d.innerHTML=`<span>📄 ${t.name}</span><button class="tab-x" onclick="closeTab(${t.id},event)">×</button>`;
+    d.onclick=()=>switchTab(t.id);bar.insertBefore(d,newBtn);
+  });
+}
+
+// ── QUICK BAR ─────────────────────────────────────────────────
+function buildQuickBar(){
+  const chips=[
+    ['SELECT *','SELECT * FROM users'],
+    ['WHERE+ORDER','SELECT * FROM users WHERE age > 25 ORDER BY age DESC'],
+    ['JOIN','SELECT users.name, orders.item, orders.price FROM users JOIN orders ON users.id = orders.user_id'],
+    ['Multi-stmt','SELECT * FROM users;\nSELECT COUNT(*) FROM orders;\nSELECT AVG(age) FROM users'],
+    ['COUNT(*)','SELECT COUNT(*) FROM users'],
+    ['AVG/MAX/MIN','SELECT AVG(age), MAX(age), MIN(age) FROM users'],
+    ['EXPLAIN','EXPLAIN SELECT * FROM users WHERE id = 1'],
+    ['CREATE INDEX','CREATE INDEX idx_age ON users(age)'],
+    ['SHOW DB','SHOW DATABASES'],
+  ];
+  document.getElementById('quickBar').innerHTML=chips.map(([l,s])=>`<button class="q-chip" onclick="setSQL(\`${s}\`)">${l}</button>`).join('');
+}
+
+// ── RUN QUERY (multi-statement) ───────────────────────────────
+async function runQuery(){
+  const sql=document.getElementById('sqlInput').value.trim();
+  if(!sql)return;
+  document.getElementById('spinner').classList.add('on');
+  const t0=performance.now();
+
+  try{
+    // check if multiple statements
+    const stmts=splitSQL(sql).filter(s=>s.trim());
+
+    if(stmts.length<=1){
+      // single statement — use original endpoint
+      const r=await fetch(`${API}/api/query`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sql})});
+      const data=await r.json();
+      const ms=(performance.now()-t0).toFixed(1);
+      document.getElementById('timeBadge').textContent=`${ms}ms`;
+      // show slow badge
+      document.getElementById('slowBadge').style.display=parseFloat(ms)>200?'inline':'none';
+      renderResult(data);
+      addHistory(sql,ms);
+    }else{
+      // multiple statements — use multi-query endpoint
+      const r=await fetch(`${API}/api/multi-query`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sql})});
+      const results=await r.json();
+      const ms=(performance.now()-t0).toFixed(1);
+      document.getElementById('timeBadge').textContent=`${ms}ms total · ${stmts.length} statements`;
+      document.getElementById('slowBadge').style.display='none';
+      renderMultiResult(results);
+      addHistory(sql,ms);
+    }
+
+    const u=sql.toUpperCase().trim();
+    if(u.includes('CREATE')||u.includes('DROP')||u.includes('ALTER')){loadTables();loadDatabases();}
+  }catch{
+    renderErr('Cannot connect to server. Is Go running on :8080?');
+  }finally{
+    document.getElementById('spinner').classList.remove('on');
+  }
+}
+
+// Split SQL by semicolons (respects quoted strings)
+function splitSQL(sql){
+  const stmts=[];let cur='';let inQuote=false;
+  for(const ch of sql){
+    if(ch==="'"){inQuote=!inQuote;cur+=ch;}
+    else if(ch===';'&&!inQuote){const s=cur.trim();if(s)stmts.push(s);cur='';}
+    else{cur+=ch;}
+  }
+  const last=cur.trim();if(last)stmts.push(last);
+  return stmts;
+}
+
+// ── RENDER SINGLE RESULT ──────────────────────────────────────
+function renderResult(data){
+  const body=document.getElementById('resultsBody'),rb=document.getElementById('rowBadge'),eb=document.getElementById('exportBtn');
+  body.innerHTML='';currentResult=null;
+  if(data.error){body.innerHTML=`<div class="msg-box err">✕ ${escHtml(data.error)}</div>`;rb.style.display='none';eb.style.display='none';return;}
+  if(data.message){body.innerHTML=`<div class="msg-box ok">✓ ${escHtml(data.message)}</div>`;rb.style.display='none';eb.style.display='none';}
+  if(data.rows?.length&&data.columns){
+    currentResult=data;pageState={data,page:1,pageSize:100};
+    rb.textContent=`${data.rows.length} row${data.rows.length!==1?'s':''}`;rb.style.display='inline';eb.style.display='inline';
+    renderPage();
+  }else if(!data.message){
+    body.innerHTML='<div class="empty-state"><div class="empty-icon">○</div><div class="empty-text">0 rows returned</div></div>';
+    rb.style.display='none';eb.style.display='none';
+  }
+}
+
+// ── RENDER MULTI RESULT ───────────────────────────────────────
+function renderMultiResult(results){
+  const body=document.getElementById('resultsBody');
+  document.getElementById('rowBadge').style.display='none';
+  document.getElementById('exportBtn').style.display='none';
+  body.innerHTML='';
+  if(!results||!results.length){body.innerHTML='<div class="empty-state"><div class="empty-text">No results</div></div>';return;}
+
+  results.forEach((res,i)=>{
+    const block=document.createElement('div');
+    block.className='multi-result-block';
+    const isSlow=res.duration_ms>200;
+
+    // header
+    const header=document.createElement('div');
+    header.className='multi-result-header';
+    header.innerHTML=`
+      <span style="color:var(--accent);font-weight:600;min-width:24px">${i+1}</span>
+      <span class="multi-result-sql" title="${escHtml(res.sql)}">${escHtml(res.sql)}</span>
+      <span class="multi-result-ms ${isSlow?'multi-slow':''}">${res.duration_ms.toFixed(1)}ms${isSlow?' ⚠':''}</span>`;
+    block.appendChild(header);
+
+    // content
+    const content=document.createElement('div');
+    if(res.result.error){
+      content.innerHTML=`<div class="msg-box err" style="margin:10px 16px">✕ ${escHtml(res.result.error)}</div>`;
+    }else if(res.result.message&&!res.result.rows?.length){
+      content.innerHTML=`<div class="msg-box ok" style="margin:10px 16px">✓ ${escHtml(res.result.message)}</div>`;
+    }else if(res.result.rows?.length){
+      const tableMatch=res.sql.match(/from\s+(\w+)/i);
+      const tName=tableMatch?.[1]?.toLowerCase();
+      const schema=currentTables.find(t=>t.name.toLowerCase()===tName);
+      content.style.overflow='auto';
+      content.style.maxHeight='300px';
+      content.appendChild(buildTable({columns:res.result.columns,rows:res.result.rows},tName,schema,0));
+      const rowInfo=document.createElement('div');
+      rowInfo.style.cssText='padding:6px 16px;font-size:10px;color:var(--text3);background:var(--surface2)';
+      rowInfo.textContent=`${res.result.rows.length} row${res.result.rows.length!==1?'s':''}`;
+      content.appendChild(rowInfo);
+    }else{
+      content.innerHTML='<div style="padding:10px 16px;font-size:11px;color:var(--text3)">0 rows returned</div>';
+    }
+    block.appendChild(content);
+    body.appendChild(block);
+  });
+}
+
+// ── PAGINATION ────────────────────────────────────────────────
+function renderPage(){
+  const body=document.getElementById('resultsBody');const{data,page,pageSize}=pageState;
+  const total=data.rows.length,totalPages=Math.ceil(total/pageSize);
+  const start=(page-1)*pageSize,end=Math.min(start+pageSize,total);
+  const tableMatch=document.getElementById('sqlInput').value.match(/from\s+(\w+)/i);
+  const tName=tableMatch?.[1]?.toLowerCase();
+  const schema=currentTables.find(t=>t.name.toLowerCase()===tName);
+  body.innerHTML='';
+  const wrap=document.createElement('div');wrap.style.cssText='flex:1;overflow:auto';
+  wrap.appendChild(buildTable({columns:data.columns,rows:data.rows.slice(start,end)},tName,schema,start));
+  body.appendChild(wrap);
+  if(totalPages>1){
+    const bar=document.createElement('div');bar.className='pagination';
+    bar.innerHTML=`<span>Rows ${start+1}–${end} of ${total}</span>
+      <button class="page-btn" onclick="changePage(-1)" ${page===1?'disabled':''}>‹ Prev</button>
+      <span>Page ${page} / ${totalPages}</span>
+      <button class="page-btn" onclick="changePage(1)" ${page===totalPages?'disabled':''}>Next ›</button>
+      <select class="page-size-sel" onchange="changePageSize(this.value)">
+        <option value="50" ${pageSize===50?'selected':''}>50/page</option>
+        <option value="100" ${pageSize===100?'selected':''}>100/page</option>
+        <option value="250" ${pageSize===250?'selected':''}>250/page</option>
+        <option value="500" ${pageSize===500?'selected':''}>500/page</option>
+      </select>`;
+    body.appendChild(bar);
+  }
+}
+function changePage(dir){const tot=pageState.data.rows.length,tp=Math.ceil(tot/pageState.pageSize);pageState.page=Math.max(1,Math.min(tp,pageState.page+dir));renderPage();}
+function changePageSize(s){pageState.pageSize=parseInt(s);pageState.page=1;renderPage();}
+function renderErr(msg){document.getElementById('resultsBody').innerHTML=`<div class="msg-box err">✕ ${escHtml(msg)}</div>`;document.getElementById('rowBadge').style.display='none';document.getElementById('exportBtn').style.display='none';}
+
+// ── TABLE BUILDER ─────────────────────────────────────────────
+function buildTable(data,tableName,schema,rowOffset=0){
+  const tbl=document.createElement('table');tbl.className='data-table';
+  const thead=document.createElement('thead'),hr=document.createElement('tr');
+  const thN=document.createElement('th');thN.className='num-h';thN.textContent='#';hr.appendChild(thN);
+  data.columns.forEach(col=>{const th=document.createElement('th');th.textContent=col;hr.appendChild(th);});
+  thead.appendChild(hr);tbl.appendChild(thead);
+  const tbody=document.createElement('tbody');
+  data.rows.forEach((row,ri)=>{
+    const tr=document.createElement('tr');
+    const tdN=document.createElement('td');tdN.className='num-c';tdN.textContent=rowOffset+ri+1;tr.appendChild(tdN);
+    data.columns.forEach(col=>{
+      const td=document.createElement('td'),val=row[col];
+      if(val===null||val===undefined||val===''){td.className='null-v';td.textContent='NULL';}
+      else if(!isNaN(val)&&val!==''){td.className='int-v editable';td.textContent=val;}
+      else{td.className='editable';td.textContent=val;}
+      if(tableName&&schema)td.addEventListener('dblclick',()=>startEdit(td,tableName,col,val,row,schema));
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);return tbl;
+}
+
+function startEdit(td,tableName,col,oldVal,row,schema){
+  if(td.classList.contains('editing'))return;
+  td.classList.add('editing');
+  const inp=document.createElement('input');inp.className='cell-input';inp.value=oldVal||'';
+  td.textContent='';td.appendChild(inp);inp.focus();inp.select();
+  const commit=async()=>{
+    const nv=inp.value.trim();td.classList.remove('editing');
+    if(nv===String(oldVal)){td.textContent=oldVal;return;}
+    const pk=schema.columns.find(c=>c.constraint==='PRIMARY KEY');
+    if(!pk){td.textContent=oldVal;toast('Table needs PRIMARY KEY for inline edit','err');return;}
+    const pkVal=row[pk.name];
+    const isInt=schema.columns.find(c=>c.name===col)?.type==='INT';
+    const setVal=isInt?nv:`'${nv}'`;
+    setSQL(`UPDATE ${tableName} SET ${col} = ${setVal} WHERE ${pk.name} = ${pkVal}`);
+    await runQuery();
+  };
+  inp.addEventListener('blur',commit);
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();commit();}if(e.key==='Escape'){td.classList.remove('editing');td.textContent=oldVal;}});
+}
+
+// ── METRICS ───────────────────────────────────────────────────
+function toggleMetrics(){
+  metricsOpen=!metricsOpen;
+  document.getElementById('metricsPanel').classList.toggle('open',metricsOpen);
+  document.getElementById('metricsToggle').classList.toggle('active',metricsOpen);
+  if(metricsOpen)loadMetrics();
+}
+
+async function loadMetrics(){
+  const grid=document.getElementById('metricsGrid');
+  try{
+    const m=await(await fetch(`${API}/api/metrics`)).json();
+    const avgMs=m.avg_query_ms?m.avg_query_ms.toFixed(1):'0';
+    grid.innerHTML=`
+      <div class="metric-card">
+        <div class="metric-icon">🗃</div>
+        <div class="metric-label">Tables</div>
+        <div class="metric-value">${m.total_tables}</div>
+        <div class="metric-sub">in ${m.current_db} database</div>
+      </div>
+      <div class="metric-card metric-blue">
+        <div class="metric-icon">⚡</div>
+        <div class="metric-label">Indexes</div>
+        <div class="metric-value">${m.total_indexes}</div>
+        <div class="metric-sub">B+ tree indexes active</div>
+      </div>
+      <div class="metric-card metric-purple">
+        <div class="metric-icon">🗂</div>
+        <div class="metric-label">Databases</div>
+        <div class="metric-value">${m.total_databases}</div>
+        <div class="metric-sub">current: ${m.current_db}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-icon">📊</div>
+        <div class="metric-label">Queries Executed</div>
+        <div class="metric-value">${m.total_queries}</div>
+        <div class="metric-sub">this session</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-icon">⏱</div>
+        <div class="metric-label">Avg Query Time</div>
+        <div class="metric-value">${avgMs}<small style="font-size:14px;font-weight:400">ms</small></div>
+        <div class="metric-sub">across all queries</div>
+      </div>
+      <div class="metric-card ${m.slow_queries>0?'metric-warn':''}">
+        <div class="metric-icon">🐢</div>
+        <div class="metric-label">Slow Queries</div>
+        <div class="metric-value">${m.slow_queries}</div>
+        <div class="metric-sub">threshold: ${m.slow_threshold_ms}ms</div>
+      </div>
+      <div class="metric-card metric-blue">
+        <div class="metric-icon">📋</div>
+        <div class="metric-label">WAL Records</div>
+        <div class="metric-value">${m.wal_size}</div>
+        <div class="metric-sub">write-ahead log entries</div>
+      </div>
+      <div class="metric-card" style="background:linear-gradient(135deg,rgba(0,229,195,.06),rgba(77,159,255,.06));border-color:var(--accent-border)">
+        <div class="metric-icon">💡</div>
+        <div class="metric-label">Quick Actions</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+          <button onclick="setSQL('SHOW DATABASES');toggleMetrics();runQuery()" style="padding:6px 10px;border-radius:5px;background:var(--accent-dim);border:1px solid var(--accent-border);color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer">SHOW DATABASES</button>
+          <button onclick="toggleSlow();toggleMetrics()" style="padding:6px 10px;border-radius:5px;background:rgba(255,183,63,.1);border:1px solid rgba(255,183,63,.3);color:var(--warn);font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer">View Slow Queries</button>
+        </div>
+      </div>`;
+  }catch{grid.innerHTML='<div class="empty-state"><div class="empty-text">Cannot load metrics</div></div>';}
+}
+
+// ── SLOW QUERIES ──────────────────────────────────────────────
+function toggleSlow(){
+  slowOpen=!slowOpen;
+  document.getElementById('slowPanel').classList.toggle('open',slowOpen);
+  document.getElementById('slowToggle').classList.toggle('active',slowOpen);
+  if(slowOpen)loadSlowQueries();
+}
+
+async function loadSlowQueries(){
+  const el=document.getElementById('slowList');
+  try{
+    const data=await(await fetch(`${API}/api/slow-queries`)).json();
+    if(!data?.length){el.innerHTML='<div class="slow-empty">🎉 No slow queries yet!<br>Threshold: 200ms</div>';return;}
+    el.innerHTML=[...data].reverse().map(q=>`
+      <div class="slow-item">
+        <div class="slow-ms">⚠ ${q.duration_ms.toFixed(1)}ms</div>
+        <div class="slow-sql">${escHtml(q.sql)}</div>
+        <div class="slow-time">${new Date(q.time).toLocaleTimeString()}</div>
+      </div>`).join('');
+  }catch{el.innerHTML='<div class="slow-empty">Cannot load slow queries</div>';}
+}
+
+async function clearSlowLog(){
+  await fetch(`${API}/api/slow-queries`,{method:'DELETE'});
+  loadSlowQueries();toast('Slow query log cleared','ok');
+}
+
+// ── HISTORY ───────────────────────────────────────────────────
+function addHistory(sql,ms){
+  queryHistory.unshift({sql,ms,time:new Date().toLocaleTimeString()});
+  if(queryHistory.length>50)queryHistory.pop();
+  localStorage.setItem('qh',JSON.stringify(queryHistory));renderHistory();
+}
+function renderHistory(){
+  const el=document.getElementById('histList');
+  if(!queryHistory.length){el.innerHTML='<div class="hist-empty">No queries yet</div>';return;}
+  el.innerHTML=queryHistory.map((h,i)=>`
+    <div class="hist-item" onclick="useHist(${i})">
+      <div class="hist-sql">${escHtml(h.sql)}</div>
+      <div class="hist-meta">${h.time} · ${h.ms}ms</div>
+    </div>`).join('');
+}
+function useHist(i){setSQL(queryHistory[i].sql);toggleHistory();}
+function clearHistory(){queryHistory=[];localStorage.removeItem('qh');renderHistory();}
+function toggleHistory(){histOpen=!histOpen;document.getElementById('histPanel').classList.toggle('open',histOpen);}
+
+// ── WAL ───────────────────────────────────────────────────────
+function toggleWAL(){
+  walOpen=!walOpen;
+  document.getElementById('walView').classList.toggle('active',walOpen);
+  document.getElementById('resultsPanel').style.display=walOpen?'none':'flex';
+  document.getElementById('walToggle').classList.toggle('active',walOpen);
+  if(walOpen)loadWAL();
+}
+async function loadWAL(){
+  const el=document.getElementById('walList');
+  try{
+    const data=await(await fetch(`${API}/api/wal`)).json();
+    if(!data?.length){el.innerHTML='<div class="hist-empty">WAL is empty</div>';return;}
+    el.innerHTML=[...data].reverse().map(e=>`
+      <div class="wal-row">
+        <span class="wal-lsn">LSN ${e.lsn}</span>
+        <span class="wal-txid">Tx #${e.txid}</span>
+        <span class="wal-type ${e.type}">${e.type}</span>
+        <span class="wal-tbl">${e.table||''}</span>
+      </div>`).join('');
+  }catch{el.innerHTML='<div class="hist-empty">Cannot load WAL</div>';}
+}
+
+// ── ER DIAGRAM ────────────────────────────────────────────────
+function toggleER(){erOpen=!erOpen;document.getElementById('erPanel').classList.toggle('open',erOpen);document.getElementById('erToggle').classList.toggle('active',erOpen);if(erOpen)loadER();}
+async function loadER(){
+  const canvas=document.getElementById('erCanvas');
+  canvas.innerHTML='<div class="empty-state"><div class="empty-text">Loading...</div></div>';
+  try{
+    const tables=await(await fetch(`${API}/api/schema`)).json();
+    if(!tables?.length){canvas.innerHTML='<div class="empty-state"><div class="empty-text">No tables</div></div>';return;}
+    document.getElementById('erSubtitle').textContent=`${tables.length} table${tables.length!==1?'s':''}`;
+    canvas.innerHTML='';
+    const fks=[];
+    tables.forEach(t=>(t.columns||[]).forEach(c=>{if(c.fk)fks.push({from:t.name,fromCol:c.name,to:c.fk.ref_table,toCol:c.fk.ref_column});}));
+    tables.forEach(t=>{
+      const card=document.createElement('div');card.className='er-table';
+      card.innerHTML=`<div class="er-table-head"><span>⊞</span> ${t.name}<span style="margin-left:auto;font-size:10px;color:var(--text3);font-family:'JetBrains Mono',monospace;font-weight:400">${(t.columns||[]).length} cols</span></div>
+        ${(t.columns||[]).map(c=>`<div class="er-col">${c.constraint==='PRIMARY KEY'?'<span class="pk-badge">PK</span>':''}${c.constraint==='UNIQUE'?'<span class="uq-badge">UQ</span>':''}${c.fk?'<span class="fk-badge" style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(255,123,53,.1);color:var(--orange);font-weight:600">FK</span>':''}<span class="er-col-name">${c.name}</span><span class="col-badge">${c.type}</span>${c.fk?`<span class="er-fk-ref">→ ${c.fk.ref_table}</span>`:''}</div>`).join('')}`;
+      canvas.appendChild(card);
+    });
+    if(fks.length){
+      const fkDiv=document.createElement('div');fkDiv.className='fk-panel';
+      fkDiv.innerHTML=`<div class="fk-title">Foreign Key Relationships</div>${fks.map(f=>`<div class="fk-row"><span style="color:var(--accent)">${f.from}.${f.fromCol}</span><span style="color:var(--orange)"> ──FK──► </span><span style="color:var(--blue)">${f.to}.${f.toCol}</span></div>`).join('')}`;
+      canvas.appendChild(fkDiv);
+    }
+  }catch{canvas.innerHTML='<div class="empty-state"><div class="empty-text">Cannot load schema</div></div>';}
+}
+
+// ── INDEX MANAGER ─────────────────────────────────────────────
+function toggleIndexes(){idxOpen=!idxOpen;document.getElementById('idxPanel').classList.toggle('open',idxOpen);document.getElementById('idxToggle').classList.toggle('active',idxOpen);if(idxOpen){loadIndexes();populateIdxTables();}}
+async function loadIndexes(){
+  const el=document.getElementById('idxList');
+  try{
+    const data=await(await fetch(`${API}/api/indexes`)).json();
+    if(!data?.length){el.innerHTML='<div class="hist-empty">No indexes yet.</div>';return;}
+    el.innerHTML=data.map(idx=>`<div class="idx-card"><div class="idx-info"><div class="idx-name">${idx.name}${idx.unique?' <span class="uq-badge">UNIQUE</span>':''}</div><div class="idx-detail">${idx.table_name}(${idx.column}) · B+ Tree</div></div><button class="idx-drop" onclick="dropIndex('${idx.name}')">Drop</button></div>`).join('');
+  }catch{el.innerHTML='<div class="hist-empty">Cannot load indexes</div>';}
+}
+function populateIdxTables(){
+  const sel=document.getElementById('idxTable');sel.innerHTML='<option value="">— table —</option>';
+  currentTables.forEach(t=>{const o=document.createElement('option');o.value=t.name;o.textContent=t.name;sel.appendChild(o);});
+}
+function populateIdxCols(){
+  const tblName=document.getElementById('idxTable').value,sel=document.getElementById('idxCol');
+  sel.innerHTML='<option value="">— column —</option>';
+  const tbl=currentTables.find(t=>t.name===tblName);if(!tbl)return;
+  tbl.columns.forEach(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=`${c.name} (${c.type})`;sel.appendChild(o);});
+}
+async function createIndex(){
+  const name=document.getElementById('idxName').value.trim(),tbl=document.getElementById('idxTable').value,col=document.getElementById('idxCol').value,uniq=document.getElementById('idxUnique').checked;
+  if(!name||!tbl||!col){toast('Fill all index fields','err');return;}
+  setSQL(`CREATE ${uniq?'UNIQUE ':''} INDEX ${name} ON ${tbl}(${col})`);toggleIndexes();await runQuery();loadIndexes();
+}
+async function dropIndex(name){setSQL(`DROP INDEX ${name}`);await runQuery();loadIndexes();toast(`Index '${name}' dropped`,'ok');}
+
+// ── TABLE DESIGNER ────────────────────────────────────────────
+function openDesigner(){document.getElementById('dtName').value='';document.getElementById('colBuilder').innerHTML='';document.getElementById('dtSQL').style.display='none';addCol();openModal('designerModal');}
+function addCol(){
+  const row=document.createElement('div');row.className='cb-row';
+  row.innerHTML=`<input class="form-input" placeholder="col_name" style="font-size:11px;padding:7px 10px" oninput="previewSQL()"><select class="form-select" style="font-size:11px;padding:7px 10px" onchange="previewSQL()"><option>INT</option><option>TEXT</option></select><div class="check-c"><input type="checkbox" class="pk-c" onchange="previewSQL()"></div><div class="check-c"><input type="checkbox" class="uq-c" onchange="previewSQL()"></div><button class="del-btn" onclick="this.parentElement.remove();previewSQL()">×</button>`;
+  document.getElementById('colBuilder').appendChild(row);previewSQL();
+}
+function previewSQL(){
+  const name=document.getElementById('dtName').value.trim(),rows=document.querySelectorAll('#colBuilder .cb-row'),el=document.getElementById('dtSQL');
+  if(!name||!rows.length){el.style.display='none';return;}
+  const cols=[...rows].map(r=>{const n=r.querySelector('input').value.trim(),t=r.querySelector('select').value,pk=r.querySelector('.pk-c').checked,uq=r.querySelector('.uq-c').checked;if(!n)return null;return`${n} ${t}${pk?' PRIMARY KEY':uq?' UNIQUE':''}`;}).filter(Boolean);
+  if(!cols.length){el.style.display='none';return;}
+  el.textContent=`CREATE TABLE ${name} (${cols.join(', ')})`;el.style.display='block';
+}
+async function createTable(){
+  const name=document.getElementById('dtName').value.trim();if(!name){toast('Enter a table name','err');return;}
+  const rows=document.querySelectorAll('#colBuilder .cb-row');if(!rows.length){toast('Add at least one column','err');return;}
+  const cols=[...rows].map(r=>{const n=r.querySelector('input').value.trim(),t=r.querySelector('select').value,pk=r.querySelector('.pk-c').checked,uq=r.querySelector('.uq-c').checked;if(!n)return null;return`${n} ${t}${pk?' PRIMARY KEY':uq?' UNIQUE':''}`;}).filter(Boolean);
+  if(cols.length<rows.length){toast('All columns need names','err');return;}
+  setSQL(`CREATE TABLE ${name} (${cols.join(', ')})`);closeModal('designerModal');await runQuery();loadTables();
+}
+
+// ── INSERT ROW ────────────────────────────────────────────────
+function openInsert(name){
+  insertTableName=name;const schema=currentTables.find(t=>t.name===name);if(!schema){toast('Schema not found','err');return;}
+  document.getElementById('insertTitle').textContent=`Insert Row → ${name}`;
+  document.getElementById('insertFields').innerHTML=schema.columns.map(c=>`<div class="form-group" style="margin-bottom:12px"><label class="form-label">${c.name} <span class="col-badge">${c.type}</span>${c.constraint==='PRIMARY KEY'?'<span class="pk-badge">PK</span>':''}</label><input class="form-input" id="ins_${c.name}" placeholder="${c.type==='INT'?'integer':'text value'}"></div>`).join('');
+  openModal('insertModal');
+}
+async function doInsert(){
+  const schema=currentTables.find(t=>t.name===insertTableName);if(!schema)return;
+  const vals=schema.columns.map(c=>{const v=document.getElementById(`ins_${c.name}`).value.trim();return c.type==='INT'?v:`'${v}'`;});
+  setSQL(`INSERT INTO ${insertTableName} VALUES (${vals.join(', ')})`);closeModal('insertModal');await runQuery();
+}
+
+// ── CSV IMPORT ────────────────────────────────────────────────
+function openCSV(){csvParsed=null;document.getElementById('csvTblName').value='';document.getElementById('csvPreview').innerHTML='';document.getElementById('csvFile').value='';openModal('csvModal');}
+function handleDrop(e){e.preventDefault();document.getElementById('dropZone').classList.remove('drag');const f=e.dataTransfer.files[0];if(f)readCSV(f);}
+function handleFilePick(e){if(e.target.files[0])readCSV(e.target.files[0]);}
+function readCSV(file){
+  const r=new FileReader();r.onload=e=>{
+    const lines=e.target.result.trim().split('\n').filter(l=>l.trim());if(lines.length<2){toast('CSV needs header + data','err');return;}
+    const headers=lines[0].split(',').map(h=>h.trim().replace(/"/g,''));
+    const rows=lines.slice(1).map(l=>l.split(',').map(v=>v.trim().replace(/"/g,'')));
+    csvParsed={headers,rows};
+    if(!document.getElementById('csvTblName').value)document.getElementById('csvTblName').value=file.name.replace('.csv','').replace(/[^a-z0-9_]/gi,'_').toLowerCase();
+    const prev=rows.slice(0,5);
+    document.getElementById('csvPreview').innerHTML=`<div class="csv-prev-title">Preview — ${rows.length} rows · ${headers.length} columns</div><div class="csv-tbl-wrap"><table class="csv-tbl"><thead><tr>${headers.map(h=>`<th>${escHtml(h)}</th>`).join('')}</tr></thead><tbody>${prev.map(r=>`<tr>${r.map(v=>`<td>${escHtml(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${rows.length>5?`<div style="font-size:10px;color:var(--text3);margin-top:6px">+${rows.length-5} more rows...</div>`:''}`;
+  };r.readAsText(file);
+}
+async function doImportCSV(){
+  if(!csvParsed){toast('Select a CSV file first','err');return;}
+  const name=document.getElementById('csvTblName').value.trim();if(!name){toast('Enter a table name','err');return;}
+  const isWholeInt=v=>v!==''&&/^-?\d+$/.test(v.trim());
+  const types=csvParsed.headers.map((_,i)=>csvParsed.rows.every(r=>r[i]===''||isWholeInt(r[i]))?'INT':'TEXT');
+  closeModal('csvModal');
+  const cr=await sendSQL(`CREATE TABLE ${name} (${csvParsed.headers.map((h,i)=>`${h} ${types[i]}`).join(', ')})`);
+  if(cr.error){toast('Error: '+cr.error,'err');return;}
+  let ok=0,failed=0;
+  for(const row of csvParsed.rows){
+    if(row.every(v=>v===''))continue;
+    const vals=row.map((v,i)=>types[i]==='INT'?(v||'0'):`'${v.replace(/'/g,"''")}'`).join(', ');
+    const res=await sendSQL(`INSERT INTO ${name} VALUES (${vals})`);
+    if(!res.error)ok++;else failed++;
+  }
+  toast(failed>0?`Imported ${ok} rows (${failed} failed)`:`✓ Imported ${ok} rows into '${name}'`,'ok');
+  loadTables();setSQL(`SELECT * FROM ${name}`);runQuery();
+}
+
+// ── EXPORT CSV ────────────────────────────────────────────────
+function exportCSV(){
+  if(!currentResult)return;
+  const{columns,rows}=currentResult;
+  const lines=[columns.join(','),...rows.map(r=>columns.map(c=>`"${(r[c]||'').replace(/"/g,'""')}"`).join(','))];
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));a.download=`export_${Date.now()}.csv`;a.click();toast('CSV exported!','ok');
+}
+
+// ── UTILS ─────────────────────────────────────────────────────
+async function sendSQL(sql){
+  try{return await(await fetch(`${API}/api/query`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sql})})).json();}
+  catch{return{error:'Network error'};}
+}
+function setSQL(sql){document.getElementById('sqlInput').value=sql;const t=tabs.find(t=>t.id===activeTab);if(t)t.sql=sql;}
+function clearEditor(){
+  document.getElementById('sqlInput').value='';
+  document.getElementById('resultsBody').innerHTML='<div class="empty-state"><div class="empty-icon">⌨</div><div class="empty-text">Run a query to see results</div></div>';
+  document.getElementById('rowBadge').style.display='none';document.getElementById('exportBtn').style.display='none';document.getElementById('timeBadge').textContent='';document.getElementById('slowBadge').style.display='none';
+}
+function handleKey(e){if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();runQuery();}}
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+function bgClose(e,id){if(e.target===document.getElementById(id))closeModal(id);}
+function toast(msg,type='ok'){const el=document.getElementById('toast');el.textContent=msg;el.className=`toast ${type} show`;clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),3000);}
+function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+</script>
+</body>
+</html>
